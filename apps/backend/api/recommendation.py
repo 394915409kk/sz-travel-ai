@@ -1,6 +1,8 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
+
 from apps.backend.db import get_connection
+from apps.backend.services.agent_team import create_agent_team_analysis
 
 router = APIRouter()
 
@@ -69,6 +71,34 @@ def build_recommendations(destination=None, budget=None, message=None):
     return recommendations
 
 
+def get_active_product(product_id: int):
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+    SELECT id, title, destination, days, price, category, description, status
+    FROM travel_products
+    WHERE id = ? AND status = 'active'
+    """, (product_id,))
+
+    row = cursor.fetchone()
+    conn.close()
+
+    if row is None:
+        return None
+
+    return {
+        "id": row["id"],
+        "title": row["title"],
+        "destination": row["destination"],
+        "days": row["days"],
+        "price": row["price"],
+        "category": row["category"],
+        "description": row["description"],
+        "status": row["status"]
+    }
+
+
 @router.post("/recommendations")
 def recommend_products(request: RecommendationRequest):
     recommendations = build_recommendations(
@@ -128,32 +158,22 @@ def recommend_products_by_inquiry(inquiry_id: int):
         "count": len(recommendations),
         "recommendations": recommendations
     }
-# =====================================================================
-# 一人公司超级个体总指挥部：多智能体协同（战略+定位+文案）全自动流水线接口
-# =====================================================================
-@router.post("/{product_id}/ai-collaborative-strategy")
+
+
+@router.post("/products/{product_id}/ai-collaborative-strategy")
 async def get_ai_collaborative_strategy(product_id: int):
     """
-    24小时全自动多智能体协同营销路由
-    自动激活：AI战略专家、AI定位专家、AI文案大师，生成一键种草文案与营销矩阵
+    基于真实产品数据生成多智能体协同营销策略。
     """
-    import json
-    # 1. 模拟从本地数据库/或当前上下文检索产品数据（锁死 2-3月早鸟塞班 4999元起 核心线索）
-    mock_product_data = {
-        "title": "2-3月早鸟塞班·香港直飞马里亚纳机酒自由行套餐",
-        "destination": "saipan",
-        "price": "4999元起包含往返机票和酒店",
-        "flight_number": "HX072/HX073"
-    }
-    
+    product_data = get_active_product(product_id)
+
+    if product_data is None:
+        raise HTTPException(status_code=404, detail="未找到该旅游产品")
+
     try:
-        # 2. 动态引入我们上一阶段手动固化好的 services/agent_team.py 三专家协同大脑
-        from apps.backend.services.agent_team import create_agent_team_analysis
-        
-        # 3. 让战略、定位、文案三大总监在后台系统进行 Chain-of-Thought（思维链）群聊研讨
-        analysis_result = await create_agent_team_analysis(product_id, mock_product_data)
-        return analysis_result
-        
-    except Exception as e:
-        from fastapi import HTTPException
-        raise HTTPException(status_code=500, detail=f"AI超级个体协同流水线中断: {str(e)}")
+        return await create_agent_team_analysis(product_id, product_data)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"AI协同策略生成失败: {str(exc)}"
+        ) from exc
