@@ -130,10 +130,7 @@ def recommend_products_by_inquiry(inquiry_id: int):
     conn.close()
 
     if inquiry is None:
-        return {
-            "success": False,
-            "message": "未找到该客户咨询记录"
-        }
+        raise HTTPException(status_code=404, detail="未找到该客户咨询记录")
 
     recommendations = build_recommendations(
         destination=inquiry["destination"],

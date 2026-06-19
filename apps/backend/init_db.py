@@ -87,9 +87,31 @@ def init_inquiries_table(cursor):
         departure_date TEXT,
         message TEXT NOT NULL,
         follow_status TEXT NOT NULL DEFAULT 'new',
+        source TEXT NOT NULL DEFAULT '未知',
+        assigned_sales TEXT NOT NULL DEFAULT '未分配',
+        priority TEXT NOT NULL DEFAULT 'medium',
+        last_contact_at TEXT,
+        next_follow_up_at TEXT,
         created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
     )
     """)
+
+    cursor.execute("PRAGMA table_info(inquiries)")
+    existing_columns = {row["name"] for row in cursor.fetchall()}
+
+    extra_columns = {
+        "source": "TEXT NOT NULL DEFAULT '未知'",
+        "assigned_sales": "TEXT NOT NULL DEFAULT '未分配'",
+        "priority": "TEXT NOT NULL DEFAULT 'medium'",
+        "last_contact_at": "TEXT",
+        "next_follow_up_at": "TEXT",
+    }
+
+    for column_name, column_definition in extra_columns.items():
+        if column_name not in existing_columns:
+            cursor.execute(
+                f"ALTER TABLE inquiries ADD COLUMN {column_name} {column_definition}"
+            )
 
 
 def init_database():
