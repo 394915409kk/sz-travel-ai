@@ -89,7 +89,8 @@ http://127.0.0.1:8000/docs
 | GET | `/products` | 查询产品列表，支持目的地、品类、最高价筛选 |
 | GET | `/products/{product_id}` | 查询产品详情 |
 | POST | `/inquiries` | 创建客户咨询 |
-| GET | `/inquiries` | 查询客户咨询列表 |
+| GET | `/inquiries` | 查询客户咨询列表，支持跟进状态、销售、优先级、来源、下次跟进时间筛选 |
+| GET | `/inquiries/follow-up/today` | 查询今天及以前需要跟进的客户咨询 |
 | GET | `/inquiries/{inquiry_id}` | 查询咨询详情 |
 | PATCH | `/inquiries/{inquiry_id}/status` | 更新销售跟进状态 |
 | POST | `/recommendations` | 根据客户需求推荐产品 |
@@ -110,8 +111,24 @@ curl -X POST http://127.0.0.1:8000/inquiries \
     "people_count": 2,
     "budget": 5000,
     "departure_date": "2026-07-01",
-    "message": "想咨询北京5日游"
+    "message": "想咨询北京5日游",
+    "source": "小红书",
+    "assigned_sales": "王销售",
+    "priority": "high",
+    "next_follow_up_at": "2026-07-02T10:00:00"
   }'
+```
+
+查询需要跟进的咨询：
+
+```bash
+curl "http://127.0.0.1:8000/inquiries?assigned_sales=王销售&priority=high&source=小红书&next_follow_up_before=2026-07-02T18:00:00"
+```
+
+查询今天及以前需要跟进的咨询：
+
+```bash
+curl http://127.0.0.1:8000/inquiries/follow-up/today
 ```
 
 基于咨询获取推荐：
