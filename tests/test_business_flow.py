@@ -92,13 +92,28 @@ def test_customer_inquiry_recommendation_flow(tmp_path, monkeypatch):
             }
         )
         assert recommendation_response.status_code == 200
-        assert recommendation_response.json()["count"] >= 1
+        recommendation_body = recommendation_response.json()
+        assert recommendation_body["count"] >= 1
+        first_recommendation = recommendation_body["recommendations"][0]
+        assert "product" in first_recommendation
+        assert "total_score" in first_recommendation
+        assert set(first_recommendation["score_detail"]) == {
+            "destination_score",
+            "budget_score",
+            "people_score",
+            "departure_date_score",
+            "keyword_score"
+        }
+        assert "recommendation_reason" in first_recommendation
 
         inquiry_recommendation_response = client.get(
             f"/inquiries/{inquiry_id}/recommendations"
         )
         assert inquiry_recommendation_response.status_code == 200
-        assert inquiry_recommendation_response.json()["count"] >= 1
+        inquiry_recommendation_body = inquiry_recommendation_response.json()
+        assert inquiry_recommendation_body["count"] >= 1
+        assert "total_score" in inquiry_recommendation_body["recommendations"][0]
+        assert "score_detail" in inquiry_recommendation_body["recommendations"][0]
 
         missing_recommendation_response = client.get("/inquiries/99999/recommendations")
         assert missing_recommendation_response.status_code == 404
@@ -141,6 +156,53 @@ def test_inquiry_crm_fields_use_defaults(tmp_path, monkeypatch):
         assert inquiry["priority"] == "medium"
         assert inquiry["last_contact_at"] is None
         assert inquiry["next_follow_up_at"] is None
+
+
+def test_recommendations_are_sorted_and_use_low_budget_fallback(tmp_path, monkeypatch):
+    monkeypatch.setenv("SQLITE_DB_PATH", str(tmp_path / "travel_test.db"))
+
+    with TestClient(app) as client:
+        scored_response = client.post(
+            "/recommendations",
+            json={
+                "people_count": 20,
+                "budget": 5000,
+                "departure_date": "2026-08-01",
+                "message": "公司团建和海岛产品，关注低价"
+            }
+        )
+        assert scored_response.status_code == 200
+
+        scored_recommendations = scored_response.json()["recommendations"]
+        assert len(scored_recommendations) >= 2
+        scores = [item["total_score"] for item in scored_recommendations]
+        assert scores == sorted(scores, reverse=True)
+        assert all("score_detail" in item for item in scored_recommendations)
+        assert any(
+            item["score_detail"]["keyword_score"] > 0
+            for item in scored_recommendations
+        )
+
+        fallback_response = client.post(
+            "/recommendations",
+            json={
+                "destination": "北京",
+                "people_count": 2,
+                "budget": 100,
+                "departure_date": "2026-07-01",
+                "message": "想去北京，预算较低"
+            }
+        )
+        assert fallback_response.status_code == 200
+
+        fallback_body = fallback_response.json()
+        assert fallback_body["count"] >= 1
+        assert fallback_body["recommendations"][0]["destination"] == "北京"
+        assert any(
+            "预算或条件存在差异，建议销售人工确认"
+            in item["recommendation_reason"]
+            for item in fallback_body["recommendations"]
+        )
 
 
 def test_ai_strategy_uses_product_route_and_real_product_data(tmp_path, monkeypatch):
