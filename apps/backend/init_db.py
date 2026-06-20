@@ -114,17 +114,47 @@ def init_inquiries_table(cursor):
             )
 
 
+def init_follow_up_tasks_table(cursor):
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS follow_up_tasks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        inquiry_id INTEGER NOT NULL,
+        assigned_sales TEXT NOT NULL DEFAULT '未分配',
+        task_title TEXT NOT NULL,
+        task_status TEXT NOT NULL DEFAULT 'pending'
+            CHECK (task_status IN ('pending', 'done', 'cancelled')),
+        priority TEXT NOT NULL DEFAULT 'medium'
+            CHECK (priority IN ('high', 'medium', 'low')),
+        due_at TEXT,
+        completed_at TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+        FOREIGN KEY (inquiry_id) REFERENCES inquiries(id)
+    )
+    """)
+
+    cursor.execute("""
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_follow_up_tasks_active_inquiry
+    ON follow_up_tasks (inquiry_id)
+    WHERE task_status IN ('pending', 'done')
+    """)
+    cursor.execute("""
+    CREATE INDEX IF NOT EXISTS idx_follow_up_tasks_sales_status_due
+    ON follow_up_tasks (assigned_sales, task_status, due_at)
+    """)
+
+
 def init_database():
     conn = get_connection()
     cursor = conn.cursor()
 
     init_products_table(cursor)
     init_inquiries_table(cursor)
+    init_follow_up_tasks_table(cursor)
 
     conn.commit()
     conn.close()
 
-    print("旅游产品和客户咨询数据库初始化完成")
+    print("旅游产品、客户咨询和销售跟进任务数据库初始化完成")
 
 
 if __name__ == "__main__":
