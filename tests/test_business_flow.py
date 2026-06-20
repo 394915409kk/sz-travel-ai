@@ -205,6 +205,137 @@ def test_recommendations_are_sorted_and_use_low_budget_fallback(tmp_path, monkey
         )
 
 
+def test_follow_up_task_generation_filters_and_status(tmp_path, monkeypatch):
+    monkeypatch.setenv("SQLITE_DB_PATH", str(tmp_path / "travel_test.db"))
+    past_due_at = (datetime.now() - timedelta(hours=2)).isoformat(timespec="seconds")
+    future_due_at = (datetime.now() + timedelta(days=1)).isoformat(timespec="seconds")
+
+    with TestClient(app) as client:
+        overdue_inquiry_response = client.post(
+            "/inquiries",
+            json={
+                "customer_name": "张三",
+                "destination": "泰国",
+                "message": "公司团建咨询",
+                "assigned_sales": "王销售",
+                "priority": "high",
+                "next_follow_up_at": past_due_at
+            }
+        )
+        overdue_inquiry_id = overdue_inquiry_response.json()["inquiry_id"]
+
+        future_inquiry_response = client.post(
+            "/inquiries",
+            json={
+                "customer_name": "李四",
+                "destination": "北京",
+                "message": "亲子游咨询",
+                "assigned_sales": "李销售",
+                "priority": "low",
+                "next_follow_up_at": future_due_at
+            }
+        )
+        future_inquiry_id = future_inquiry_response.json()["inquiry_id"]
+
+        no_due_inquiry_response = client.post(
+            "/inquiries",
+            json={
+                "customer_name": "王五",
+                "message": "暂未确定跟进时间",
+                "assigned_sales": "王销售"
+            }
+        )
+        assert no_due_inquiry_response.status_code == 200
+
+        generate_response = client.post("/follow-up-tasks/generate")
+        assert generate_response.status_code == 200
+        generate_body = generate_response.json()
+        assert generate_body["generated_count"] == 2
+        assert [
+            task["inquiry_id"] for task in generate_body["tasks"]
+        ] == [overdue_inquiry_id, future_inquiry_id]
+
+        tasks_by_inquiry = {
+            task["inquiry_id"]: task for task in generate_body["tasks"]
+        }
+        overdue_task = tasks_by_inquiry[overdue_inquiry_id]
+        overdue_task_id = overdue_task["id"]
+        assert overdue_task["assigned_sales"] == "王销售"
+        assert overdue_task["priority"] == "high"
+        assert overdue_task["task_status"] == "pending"
+        assert overdue_task["due_at"] == past_due_at
+        assert overdue_task["completed_at"] is None
+        assert overdue_task["task_title"] == "跟进客户 张三 - 泰国"
+        assert overdue_task["inquiry"]["customer_name"] == "张三"
+
+        duplicate_response = client.post("/follow-up-tasks/generate")
+        assert duplicate_response.status_code == 200
+        assert duplicate_response.json()["generated_count"] == 0
+
+        sales_filter_response = client.get(
+            "/follow-up-tasks",
+            params={"assigned_sales": "王销售"}
+        )
+        assert sales_filter_response.json()["count"] == 1
+
+        status_filter_response = client.get(
+            "/follow-up-tasks",
+            params={"task_status": "pending"}
+        )
+        assert status_filter_response.json()["count"] == 2
+
+        priority_filter_response = client.get(
+            "/follow-up-tasks",
+            params={"priority": "high"}
+        )
+        assert priority_filter_response.json()["count"] == 1
+
+        due_filter_response = client.get(
+            "/follow-up-tasks",
+            params={"due_before": datetime.now().isoformat(timespec="seconds")}
+        )
+        assert due_filter_response.json()["count"] == 1
+        assert due_filter_response.json()["tasks"][0]["id"] == overdue_task_id
+
+        today_response = client.get("/follow-up-tasks/today")
+        assert today_response.status_code == 200
+        assert today_response.json()["count"] == 1
+        assert today_response.json()["tasks"][0]["id"] == overdue_task_id
+
+        detail_response = client.get(f"/follow-up-tasks/{overdue_task_id}")
+        assert detail_response.status_code == 200
+        assert detail_response.json()["task"]["inquiry_id"] == overdue_inquiry_id
+
+        invalid_status_response = client.patch(
+            f"/follow-up-tasks/{overdue_task_id}/status",
+            json={"task_status": "in_progress"}
+        )
+        assert invalid_status_response.status_code == 422
+
+        missing_detail_response = client.get("/follow-up-tasks/99999")
+        assert missing_detail_response.status_code == 404
+
+        missing_status_response = client.patch(
+            "/follow-up-tasks/99999/status",
+            json={"task_status": "done"}
+        )
+        assert missing_status_response.status_code == 404
+
+        done_response = client.patch(
+            f"/follow-up-tasks/{overdue_task_id}/status",
+            json={"task_status": "done"}
+        )
+        assert done_response.status_code == 200
+        assert done_response.json()["task"]["task_status"] == "done"
+        assert done_response.json()["task"]["completed_at"] is not None
+
+        today_after_done_response = client.get("/follow-up-tasks/today")
+        assert today_after_done_response.json()["count"] == 0
+
+        regenerate_after_done_response = client.post("/follow-up-tasks/generate")
+        assert regenerate_after_done_response.json()["generated_count"] == 0
+
+
 def test_ai_strategy_uses_product_route_and_real_product_data(tmp_path, monkeypatch):
     monkeypatch.setenv("SQLITE_DB_PATH", str(tmp_path / "travel_test.db"))
 

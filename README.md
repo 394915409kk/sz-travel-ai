@@ -6,7 +6,7 @@
 
 当前版本是一个 FastAPI 后端 MVP，已完成最小业务闭环：
 
-客户提出需求 -> 系统保存咨询 -> 系统匹配产品 -> 返回推荐结果 -> 销售人员跟进。
+客户提出需求 -> 系统保存咨询 -> 系统匹配产品 -> 返回推荐结果 -> 生成销售跟进任务 -> 销售完成跟进。
 
 ## 代码结构
 
@@ -18,7 +18,9 @@ apps/backend/init_inquiries_db.py    咨询表初始化兼容入口
 apps/backend/api/travel.py           旅游产品接口
 apps/backend/api/inquiry.py          客户咨询接口
 apps/backend/api/recommendation.py   产品推荐和 AI 策略接口
+apps/backend/api/follow_up_task.py   销售跟进任务接口
 apps/backend/services/agent_team.py  多智能体策略分析服务
+apps/backend/services/recommendation_scoring.py  产品推荐规则评分服务
 tests/                               自动化测试
 ```
 
@@ -95,6 +97,11 @@ http://127.0.0.1:8000/docs
 | PATCH | `/inquiries/{inquiry_id}/status` | 更新销售跟进状态 |
 | POST | `/recommendations` | 根据客户需求生成规则评分推荐 |
 | GET | `/inquiries/{inquiry_id}/recommendations` | 根据某条咨询生成规则评分推荐 |
+| POST | `/follow-up-tasks/generate` | 根据已有咨询生成销售跟进任务 |
+| GET | `/follow-up-tasks` | 查询任务，支持销售、状态、优先级和到期时间筛选 |
+| GET | `/follow-up-tasks/today` | 查询今天及以前到期的 pending 任务 |
+| GET | `/follow-up-tasks/{task_id}` | 查询单个销售跟进任务 |
+| PATCH | `/follow-up-tasks/{task_id}/status` | 更新任务状态并记录完成时间 |
 | POST | `/products/{product_id}/ai-collaborative-strategy` | 基于真实产品数据生成多智能体营销策略 |
 
 ## 推荐评分规则
@@ -102,6 +109,10 @@ http://127.0.0.1:8000/docs
 产品推荐按 100 分制规则计分：目的地 40 分、预算 30 分、人数 10 分、出发日期 5 分、需求关键词 15 分。当前产品未设置人数和可售日期限制时，对应维度按中性分计算。
 
 正常情况下不推荐严重超预算且条件不匹配的产品；如果没有合格候选，系统会返回最接近的产品，并提示销售人工确认预算或条件差异。
+
+## 销售跟进任务模块
+
+`follow_up_tasks` 根据咨询的 `assigned_sales`、`priority` 和 `next_follow_up_at` 生成销售待办。同一咨询已有 `pending` 或 `done` 任务时不重复生成；任务状态更新为 `done` 时自动写入 `completed_at`。
 
 ## 示例请求
 
@@ -157,6 +168,32 @@ curl -X POST http://127.0.0.1:8000/recommendations \
 curl http://127.0.0.1:8000/inquiries/1/recommendations
 ```
 
+根据咨询生成销售跟进任务：
+
+```bash
+curl -X POST http://127.0.0.1:8000/follow-up-tasks/generate
+```
+
+查询某位销售的高优先级待办：
+
+```bash
+curl "http://127.0.0.1:8000/follow-up-tasks?assigned_sales=王销售&task_status=pending&priority=high"
+```
+
+查询今天及以前需要处理的任务：
+
+```bash
+curl http://127.0.0.1:8000/follow-up-tasks/today
+```
+
+完成销售跟进任务：
+
+```bash
+curl -X PATCH http://127.0.0.1:8000/follow-up-tasks/1/status \
+  -H "Content-Type: application/json" \
+  -d '{"task_status": "done"}'
+```
+
 更新销售跟进状态：
 
 ```bash
@@ -176,3 +213,5 @@ pytest
 - 当前产品数据是初始化脚本内置的演示数据，不代表实时价格、库存或政策。
 - 对外报价、库存、航班、签证政策、退款规则仍需人工复核。
 - 客户手机号等敏感信息后续需要接入权限控制和脱敏展示。
+- 任务生成当前由 `POST /follow-up-tasks/generate` 触发，尚未接入定时调度或外部消息通知。
+- 任务时间按 SQLite 中保存的本地 ISO 日期时间比较，正式多时区部署前需要统一时区策略。
