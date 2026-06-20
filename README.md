@@ -93,9 +93,15 @@ http://127.0.0.1:8000/docs
 | GET | `/inquiries/follow-up/today` | 查询今天及以前需要跟进的客户咨询 |
 | GET | `/inquiries/{inquiry_id}` | 查询咨询详情 |
 | PATCH | `/inquiries/{inquiry_id}/status` | 更新销售跟进状态 |
-| POST | `/recommendations` | 根据客户需求推荐产品 |
-| GET | `/inquiries/{inquiry_id}/recommendations` | 根据某条咨询生成推荐 |
+| POST | `/recommendations` | 根据客户需求生成规则评分推荐 |
+| GET | `/inquiries/{inquiry_id}/recommendations` | 根据某条咨询生成规则评分推荐 |
 | POST | `/products/{product_id}/ai-collaborative-strategy` | 基于真实产品数据生成多智能体营销策略 |
+
+## 推荐评分规则
+
+产品推荐按 100 分制规则计分：目的地 40 分、预算 30 分、人数 10 分、出发日期 5 分、需求关键词 15 分。当前产品未设置人数和可售日期限制时，对应维度按中性分计算。
+
+正常情况下不推荐严重超预算且条件不匹配的产品；如果没有合格候选，系统会返回最接近的产品，并提示销售人工确认预算或条件差异。
 
 ## 示例请求
 
@@ -129,6 +135,20 @@ curl "http://127.0.0.1:8000/inquiries?assigned_sales=王销售&priority=high&sou
 
 ```bash
 curl http://127.0.0.1:8000/inquiries/follow-up/today
+```
+
+直接获取规则评分推荐：
+
+```bash
+curl -X POST http://127.0.0.1:8000/recommendations \
+  -H "Content-Type: application/json" \
+  -d '{
+    "destination": "泰国",
+    "people_count": 12,
+    "budget": 5200,
+    "departure_date": "2026-08-01",
+    "message": "公司团建，希望品质好一些"
+  }'
 ```
 
 基于咨询获取推荐：
