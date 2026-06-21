@@ -6,6 +6,9 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from apps.backend.db import get_connection
+from apps.backend.services.inventory_service import InventoryConsistencyService
+from apps.backend.services.order_state_machine import OrderStateMachine
+from apps.backend.services.payment_guard import PaymentIdempotencyGuard
 
 
 router = APIRouter()
@@ -37,14 +40,6 @@ ResourceType = Literal[
 InsuranceStatus = Literal["active", "inactive"]
 VerificationStatus = Literal["pending", "verified", "rejected"]
 ReminderStatus = Literal["pending", "completed", "cancelled"]
-
-RESOURCE_TABLES = {
-    "transport": "travel_transport_resources",
-    "hotel_room": "hotel_room_resources",
-    "attraction_ticket": "attraction_ticket_resources",
-    "restaurant_meal": "restaurant_meal_resources",
-    "activity": "activity_resources",
-}
 
 ORDER_FIELDS = """
 id, order_no, inquiry_id, customer_name, phone, destination, people_count,
@@ -90,6 +85,10 @@ class OrderStatusUpdate(StrictModel):
     order_status: OrderStatus
 
 
+class MockPaymentRequest(StrictModel):
+    payment_event_id: str = Field(min_length=1, max_length=128)
+
+
 class OrderDocumentCreate(StrictModel):
     customer_name: str = Field(min_length=1)
     document_type: str = Field(min_length=1)
@@ -132,6 +131,12 @@ def current_time():
     return datetime.now().isoformat(timespec="seconds")
 
 
+def begin_critical_transaction(conn):
+    conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA busy_timeout = 5000")
+    conn.execute("BEGIN IMMEDIATE")
+
+
 def generated_number(prefix):
     timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
     return f"{prefix}-{timestamp}-{uuid4().hex[:8].upper()}"
@@ -169,97 +174,12 @@ def fetch_order_detail(conn, order_id):
     return serialize_order(row, fetch_order_items(cursor, order_id))
 
 
-def fetch_resource(cursor, resource_type, resource_id):
-    table_name = RESOURCE_TABLES[resource_type]
-    cursor.execute(
-        f"""
-        SELECT id, sale_price, stock_quantity, sold_quantity,
-               reserved_quantity, status
-        FROM {table_name}
-        WHERE id = ?
-        """,
-        (resource_id,),
-    )
-    return table_name, cursor.fetchone()
-
-
-def reserve_inventory(cursor, item):
-    table_name, resource = fetch_resource(
-        cursor,
-        item.resource_type,
-        item.resource_id,
-    )
-    if resource is None:
-        raise HTTPException(status_code=404, detail="未找到订单资源")
-    if resource["status"] != "active":
-        raise HTTPException(status_code=400, detail="订单资源未启用")
-
-    available = (
-        resource["stock_quantity"]
-        - resource["sold_quantity"]
-        - resource["reserved_quantity"]
-    )
-    if available < item.quantity:
-        raise HTTPException(status_code=400, detail="库存不足")
-
-    cursor.execute(
-        f"""
-        UPDATE {table_name}
-        SET reserved_quantity = reserved_quantity + ?
-        WHERE id = ?
-          AND stock_quantity - sold_quantity - reserved_quantity >= ?
-        """,
-        (item.quantity, item.resource_id, item.quantity),
-    )
-    if cursor.rowcount != 1:
-        raise HTTPException(status_code=400, detail="库存不足")
-
-    unit_price = (
-        item.unit_price if item.unit_price is not None else resource["sale_price"]
-    )
-    return round(float(unit_price), 2)
-
-
-def transfer_reserved_to_sold(cursor, item):
-    table_name = RESOURCE_TABLES[item["resource_type"]]
-    cursor.execute(
-        f"""
-        UPDATE {table_name}
-        SET reserved_quantity = reserved_quantity - ?,
-            sold_quantity = sold_quantity + ?
-        WHERE id = ? AND reserved_quantity >= ?
-        """,
-        (
-            item["quantity"],
-            item["quantity"],
-            item["resource_id"],
-            item["quantity"],
-        ),
-    )
-    if cursor.rowcount != 1:
-        raise HTTPException(status_code=409, detail="订单预留库存状态异常")
-
-
-def release_reserved_inventory(cursor, item):
-    table_name = RESOURCE_TABLES[item["resource_type"]]
-    cursor.execute(
-        f"""
-        UPDATE {table_name}
-        SET reserved_quantity = reserved_quantity - ?
-        WHERE id = ? AND reserved_quantity >= ?
-        """,
-        (item["quantity"], item["resource_id"], item["quantity"]),
-    )
-    if cursor.rowcount != 1:
-        raise HTTPException(status_code=409, detail="订单预留库存状态异常")
-
-
 @router.post("/orders")
 def create_order(request: OrderCreate):
     conn = get_connection()
     cursor = conn.cursor()
     try:
-        conn.execute("BEGIN IMMEDIATE")
+        begin_critical_transaction(conn)
         inquiry = None
         if request.inquiry_id is not None:
             cursor.execute(
@@ -297,11 +217,9 @@ def create_order(request: OrderCreate):
             INSERT INTO orders
             (
                 order_no, inquiry_id, customer_name, phone, destination,
-                people_count, total_amount, paid_amount, order_status,
-                payment_status, fulfillment_status, created_at, updated_at
+                people_count, total_amount, paid_amount, created_at, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, 0, 0, 'pending_payment',
-                    'unpaid', 'pending', ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?, ?)
             """,
             (
                 generated_number("ORD"),
@@ -315,10 +233,31 @@ def create_order(request: OrderCreate):
             ),
         )
         order_id = cursor.lastrowid
+        order = fetch_order(cursor, order_id)
+        OrderStateMachine(cursor, current_time).transition(
+            order,
+            "pending_payment",
+        )
 
         items_total = 0.0
         for item in request.items:
-            unit_price = reserve_inventory(cursor, item)
+            inventory_service = InventoryConsistencyService(
+                cursor,
+                item.resource_type,
+            )
+            resource = inventory_service.lock_stock(
+                order_id,
+                item.resource_id,
+                item.quantity,
+            )
+            unit_price = round(
+                float(
+                    item.unit_price
+                    if item.unit_price is not None
+                    else resource["sale_price"]
+                ),
+                2,
+            )
             total_price = round(unit_price * item.quantity, 2)
             items_total = round(items_total + total_price, 2)
             cursor.execute(
@@ -402,50 +341,23 @@ def get_order(order_id: int):
 
 @router.patch("/orders/{order_id}/status")
 def update_order_status(order_id: int, request: OrderStatusUpdate):
-    allowed_transitions = {
-        "draft": {"pending_payment", "cancelled"},
-        "pending_payment": {"cancelled"},
-        "paid": {"fulfilling", "cancelled"},
-        "fulfilling": {"completed", "cancelled"},
-        "completed": set(),
-        "cancelled": set(),
-    }
     conn = get_connection()
     cursor = conn.cursor()
     try:
-        conn.execute("BEGIN IMMEDIATE")
+        begin_critical_transaction(conn)
         order = fetch_order(cursor, order_id)
         if order is None:
             raise HTTPException(status_code=404, detail="未找到该订单")
-        current_status = order["order_status"]
-        next_status = request.order_status
-        if current_status == next_status:
-            conn.commit()
-            result = fetch_order_detail(conn, order_id)
-            conn.close()
-            return {"success": True, "order": result}
-        if next_status == "paid":
-            raise HTTPException(status_code=400, detail="请使用 mock-payment 完成支付")
-        if next_status not in allowed_transitions[current_status]:
-            raise HTTPException(status_code=400, detail="不允许的订单状态流转")
 
-        if next_status == "cancelled" and order["payment_status"] == "unpaid":
-            for item in fetch_order_items(cursor, order_id):
-                release_reserved_inventory(cursor, item)
+        if (
+            request.order_status == "cancelled"
+            and order["order_status"] != "cancelled"
+        ):
+            InventoryConsistencyService(cursor).release_stock(order_id)
 
-        fulfillment_status = order["fulfillment_status"]
-        if next_status == "fulfilling":
-            fulfillment_status = "in_progress"
-        elif next_status == "completed":
-            fulfillment_status = "completed"
-
-        cursor.execute(
-            """
-            UPDATE orders
-            SET order_status = ?, fulfillment_status = ?, updated_at = ?
-            WHERE id = ?
-            """,
-            (next_status, fulfillment_status, current_time(), order_id),
+        OrderStateMachine(cursor, current_time).transition(
+            order,
+            request.order_status,
         )
         conn.commit()
         result = fetch_order_detail(conn, order_id)
@@ -458,23 +370,40 @@ def update_order_status(order_id: int, request: OrderStatusUpdate):
 
 
 @router.post("/orders/{order_id}/mock-payment")
-def mock_payment(order_id: int):
+def mock_payment(order_id: int, request: MockPaymentRequest):
     conn = get_connection()
     cursor = conn.cursor()
     try:
-        conn.execute("BEGIN IMMEDIATE")
+        begin_critical_transaction(conn)
+        payment_guard = PaymentIdempotencyGuard(cursor, current_time)
+        processed_result = payment_guard.get_processed_result(
+            request.payment_event_id,
+            order_id,
+        )
+        if processed_result is not None:
+            conn.commit()
+            conn.close()
+            return {**processed_result, "idempotent_replay": True}
+
+        payment_guard.claim(request.payment_event_id, order_id)
         order = fetch_order(cursor, order_id)
         if order is None:
             raise HTTPException(status_code=404, detail="未找到该订单")
         if order["order_status"] == "cancelled":
             raise HTTPException(status_code=400, detail="已取消订单不能支付")
         if order["payment_status"] == "mock_paid":
-            raise HTTPException(status_code=409, detail="订单已完成模拟支付")
+            result = {
+                "success": True,
+                "order": fetch_order_detail(conn, order_id),
+            }
+            payment_guard.complete(request.payment_event_id, result)
+            conn.commit()
+            conn.close()
+            return {**result, "idempotent_replay": True}
         if order["payment_status"] != "unpaid":
             raise HTTPException(status_code=400, detail="当前支付状态不能模拟支付")
 
-        for item in fetch_order_items(cursor, order_id):
-            transfer_reserved_to_sold(cursor, item)
+        InventoryConsistencyService(cursor).commit_sale(order_id)
 
         cursor.execute(
             "SELECT COUNT(*) AS count FROM order_documents WHERE order_id = ?",
@@ -499,20 +428,29 @@ def mock_payment(order_id: int):
         cursor.execute(
             """
             UPDATE orders
-            SET payment_status = 'mock_paid', order_status = 'paid',
-                paid_amount = total_amount, fulfillment_status = ?, updated_at = ?
-            WHERE id = ?
+            SET payment_status = 'mock_paid', paid_amount = total_amount,
+                fulfillment_status = ?, updated_at = ?
+            WHERE id = ? AND payment_status = 'unpaid'
             """,
             (fulfillment_status, current_time(), order_id),
         )
+        if cursor.rowcount != 1:
+            raise HTTPException(status_code=409, detail="订单支付状态已被并发修改")
+
+        paid_order = fetch_order(cursor, order_id)
+        OrderStateMachine(cursor, current_time).transition(paid_order, "paid")
+        result = {
+            "success": True,
+            "order": fetch_order_detail(conn, order_id),
+        }
+        payment_guard.complete(request.payment_event_id, result)
         conn.commit()
-        result = fetch_order_detail(conn, order_id)
     except Exception:
         conn.rollback()
         conn.close()
         raise
     conn.close()
-    return {"success": True, "order": result}
+    return {**result, "idempotent_replay": False}
 
 
 @router.post("/orders/{order_id}/documents")
@@ -631,12 +569,14 @@ def create_order_insurance(order_id: int, request: OrderInsuranceCreate):
     conn = get_connection()
     cursor = conn.cursor()
     try:
-        conn.execute("BEGIN IMMEDIATE")
+        begin_critical_transaction(conn)
         order = fetch_order(cursor, order_id)
         if order is None:
             raise HTTPException(status_code=404, detail="未找到该订单")
         if order["order_status"] in ("completed", "cancelled"):
             raise HTTPException(status_code=400, detail="当前订单不能新增保险")
+        if order["payment_status"] != "unpaid":
+            raise HTTPException(status_code=400, detail="已支付订单不能修改金额")
         cursor.execute(
             "SELECT * FROM insurance_products WHERE id = ?",
             (request.insurance_product_id,),
@@ -666,10 +606,12 @@ def create_order_insurance(order_id: int, request: OrderInsuranceCreate):
             """
             UPDATE orders
             SET total_amount = total_amount + ?, updated_at = ?
-            WHERE id = ?
+            WHERE id = ? AND payment_status = 'unpaid'
             """,
             (price, current_time(), order_id),
         )
+        if cursor.rowcount != 1:
+            raise HTTPException(status_code=409, detail="订单金额状态已被并发修改")
         conn.commit()
         cursor.execute("SELECT * FROM order_insurances WHERE id = ?", (insurance_id,))
         result = dict(cursor.fetchone())
@@ -761,7 +703,7 @@ def mock_sign_contract(order_id: int, contract_id: int):
     conn = get_connection()
     cursor = conn.cursor()
     try:
-        conn.execute("BEGIN IMMEDIATE")
+        begin_critical_transaction(conn)
         order = fetch_order(cursor, order_id)
         if order is None:
             raise HTTPException(status_code=404, detail="未找到该订单")

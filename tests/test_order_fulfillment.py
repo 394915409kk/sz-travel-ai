@@ -174,7 +174,10 @@ def test_order_transaction_and_fulfillment_center_mvp(tmp_path, monkeypatch):
         assert reminder_status_response.status_code == 200
         assert reminder_status_response.json()["reminder"]["status"] == "completed"
 
-        payment_response = client.post(f"/orders/{order_id}/mock-payment")
+        payment_response = client.post(
+            f"/orders/{order_id}/mock-payment",
+            json={"payment_event_id": "PAY-ORDER-001"},
+        )
         assert payment_response.status_code == 200
         paid_order = payment_response.json()["order"]
         assert paid_order["payment_status"] == "mock_paid"
@@ -187,8 +190,12 @@ def test_order_transaction_and_fulfillment_center_mvp(tmp_path, monkeypatch):
         assert paid_resource["sold_quantity"] == 2
         assert paid_resource["available_quantity"] == 1
 
-        duplicate_payment = client.post(f"/orders/{order_id}/mock-payment")
-        assert duplicate_payment.status_code == 409
+        duplicate_payment = client.post(
+            f"/orders/{order_id}/mock-payment",
+            json={"payment_event_id": "PAY-ORDER-001"},
+        )
+        assert duplicate_payment.status_code == 200
+        assert duplicate_payment.json()["idempotent_replay"] is True
         duplicate_resource = client.get("/resources/transport").json()["resources"][0]
         assert duplicate_resource["sold_quantity"] == 2
 
@@ -268,7 +275,10 @@ def test_unpaid_cancellation_releases_inventory_and_inquiry_order(
         released = client.get("/resources/activities").json()["resources"][0]
         assert released["reserved_quantity"] == 0
         assert released["sold_quantity"] == 0
-        assert client.post(f"/orders/{cancel_order_id}/mock-payment").status_code == 400
+        assert client.post(
+            f"/orders/{cancel_order_id}/mock-payment",
+            json={"payment_event_id": "PAY-CANCELLED-001"},
+        ).status_code == 400
 
         inquiry_response = client.post(
             "/inquiries",

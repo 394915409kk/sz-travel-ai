@@ -23,6 +23,9 @@ apps/backend/api/resource.py         旅游资源与成本中心接口
 apps/backend/api/order.py            订单交易与履约中心接口
 apps/backend/services/agent_team.py  多智能体策略分析服务
 apps/backend/services/recommendation_scoring.py  产品推荐规则评分服务
+apps/backend/services/inventory_service.py  库存一致性服务
+apps/backend/services/order_state_machine.py  订单状态机
+apps/backend/services/payment_guard.py  支付事件幂等控制
 tests/                               自动化测试
 ```
 
@@ -172,6 +175,14 @@ http://127.0.0.1:8000/docs
 
 创建订单时会在同一个 SQLite 事务中校验 `stock_quantity - sold_quantity - reserved_quantity` 并增加预留数量。模拟支付把订单预留库存转为已售，重复支付不会再次扣减；未支付订单取消时释放预留。证件、保险、合同和提醒均仅保存本地记录，不调用 OCR、电子签、支付或通知服务。
 
+## 金融级一致性保障设计
+
+- **库存锁定机制**：`InventoryConsistencyService` 是库存字段的唯一写入口。创建订单调用 `lock_stock()` 增加预留，未支付取消调用 `release_stock()` 释放预留，模拟支付调用 `commit_sale()` 将预留原子转换为已售。
+- **幂等支付机制**：每次模拟支付必须提交唯一 `payment_event_id`。`PaymentIdempotencyGuard` 通过 `payment_events` 唯一约束记录处理结果；同一事件重复或并发到达时直接返回首次结果，不重复提交库存。
+- **状态机控制**：`OrderStateMachine` 是 `order_status` 的唯一更新入口，只允许 `draft → pending_payment → paid → fulfilling → completed`，并允许未支付订单从 `draft` 或 `pending_payment` 取消。已支付订单拒绝取消。
+- **防超卖设计**：订单创建、支付、取消和保险金额变更均使用 `BEGIN IMMEDIATE` 事务；库存锁定同时使用带可用库存条件的原子 `UPDATE`，并由数据库约束保证 `sold_quantity + reserved_quantity <= stock_quantity`。
+- **防错账设计**：支付、库存转换和订单状态在同一事务中提交或回滚；支付后禁止保险修改 `total_amount`；合同操作不触碰金额和库存。SQLite 适用于当前单实例 MVP，多实例部署前仍需迁移到支持行级锁的生产数据库。
+
 ## 示例请求
 
 创建客户咨询：
@@ -306,7 +317,9 @@ curl -X POST http://127.0.0.1:8000/orders \
 执行模拟支付：
 
 ```bash
-curl -X POST http://127.0.0.1:8000/orders/1/mock-payment
+curl -X POST http://127.0.0.1:8000/orders/1/mock-payment \
+  -H "Content-Type: application/json" \
+  -d '{"payment_event_id": "PAY-20260621-0001"}'
 ```
 
 更新销售跟进状态：

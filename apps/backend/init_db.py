@@ -340,7 +340,7 @@ def init_order_tables(cursor):
         people_count INTEGER NOT NULL DEFAULT 1 CHECK (people_count > 0),
         total_amount REAL NOT NULL DEFAULT 0 CHECK (total_amount >= 0),
         paid_amount REAL NOT NULL DEFAULT 0 CHECK (paid_amount >= 0),
-        order_status TEXT NOT NULL DEFAULT 'pending_payment'
+        order_status TEXT NOT NULL DEFAULT 'draft'
             CHECK (
                 order_status IN (
                     'draft', 'pending_payment', 'paid', 'fulfilling',
@@ -452,6 +452,20 @@ def init_order_tables(cursor):
     """)
 
     cursor.execute("""
+    CREATE TABLE IF NOT EXISTS payment_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        payment_event_id TEXT NOT NULL UNIQUE,
+        order_id INTEGER NOT NULL,
+        event_status TEXT NOT NULL DEFAULT 'processing'
+            CHECK (event_status IN ('processing', 'processed')),
+        response_json TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+        processed_at TEXT,
+        FOREIGN KEY (order_id) REFERENCES orders(id)
+    )
+    """)
+
+    cursor.execute("""
     CREATE INDEX IF NOT EXISTS idx_orders_status
     ON orders (order_status, payment_status, fulfillment_status, created_at)
     """)
@@ -474,6 +488,10 @@ def init_order_tables(cursor):
     cursor.execute("""
     CREATE INDEX IF NOT EXISTS idx_order_reminders_order_status
     ON order_reminders (order_id, status, remind_at)
+    """)
+    cursor.execute("""
+    CREATE INDEX IF NOT EXISTS idx_payment_events_order
+    ON payment_events (order_id, event_status)
     """)
 
 
