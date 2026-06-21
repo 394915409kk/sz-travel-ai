@@ -6,6 +6,7 @@ from apps.backend.api.travel import router as travel_router
 from apps.backend.api.inquiry import router as inquiry_router
 from apps.backend.api.recommendation import router as recommendation_router
 from apps.backend.api.follow_up_task import router as follow_up_task_router
+from apps.backend.api.resource import router as resource_router
 from apps.backend.init_db import init_database
 
 
@@ -34,3 +35,4 @@ app.include_router(travel_router)
 app.include_router(inquiry_router)
 app.include_router(recommendation_router)
 app.include_router(follow_up_task_router)
+app.include_router(resource_router)

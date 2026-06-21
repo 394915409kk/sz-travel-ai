@@ -336,6 +336,267 @@ def test_follow_up_task_generation_filters_and_status(tmp_path, monkeypatch):
         assert regenerate_after_done_response.json()["generated_count"] == 0
 
 
+def test_travel_resource_cost_center_creation_filters_and_validation(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setenv("SQLITE_DB_PATH", str(tmp_path / "travel_test.db"))
+
+    transport_payload = {
+        "destination": "泰国",
+        "resource_name": "深圳往返曼谷机票",
+        "supplier_name": "测试航空供应商",
+        "transport_type": "flight",
+        "departure_city": "深圳",
+        "arrival_city": "曼谷",
+        "cost_price": 1800,
+        "sale_price": 2200,
+        "stock_quantity": 10,
+        "sold_quantity": 2,
+        "reserved_quantity": 3,
+        "available_start_date": "2026-07-01",
+        "available_end_date": "2026-08-31",
+        "available_dates": ["2026-07-01", "2026-07-02"]
+    }
+    hotel_payload = {
+        "destination": "泰国",
+        "resource_name": "曼谷市中心酒店豪华房",
+        "supplier_name": "测试酒店供应商",
+        "hotel_name": "曼谷市中心酒店",
+        "room_type": "豪华大床房",
+        "breakfast_included": True,
+        "max_occupancy": 2,
+        "cost_price": 400,
+        "sale_price": 600,
+        "available_start_date": "2026-07-01",
+        "available_end_date": "2026-07-31"
+    }
+    attraction_payload = {
+        "destination": "北京",
+        "resource_name": "故宫成人门票",
+        "supplier_name": "测试景区供应商",
+        "cost_price": 80,
+        "sale_price": 120,
+        "status": "inactive"
+    }
+    restaurant_payload = {
+        "destination": "泰国",
+        "resource_name": "曼谷团队午餐",
+        "supplier_name": "测试餐饮供应商",
+        "meal_type": "lunch",
+        "price_per_person": 100,
+        "cost_price": 80,
+        "sale_price": 120
+    }
+    activity_payload = {
+        "destination": "泰国",
+        "resource_name": "芭提雅海岛潜水",
+        "supplier_name": "测试玩乐供应商",
+        "activity_type": "diving",
+        "duration": "2小时",
+        "suitable_people": "12岁以上健康人群",
+        "cost_price": 300,
+        "sale_price": 450
+    }
+
+    with TestClient(app) as client:
+        transport_response = client.post(
+            "/resources/transport",
+            json=transport_payload
+        )
+        assert transport_response.status_code == 200
+        transport = transport_response.json()["resource"]
+        assert transport["transport_type"] == "flight"
+        assert transport["departure_city"] == "深圳"
+        assert transport["arrival_city"] == "曼谷"
+        assert transport["currency"] == "CNY"
+        assert transport["status"] == "active"
+        assert transport["created_at"] is not None
+        assert transport["stock_quantity"] == 10
+        assert transport["sold_quantity"] == 2
+        assert transport["reserved_quantity"] == 3
+        assert transport["available_quantity"] == 5
+        assert transport["available_dates"] == ["2026-07-01", "2026-07-02"]
+
+        hotel_response = client.post(
+            "/resources/hotel-rooms",
+            json=hotel_payload
+        )
+        assert hotel_response.status_code == 200
+        hotel = hotel_response.json()["resource"]
+        assert hotel["hotel_name"] == "曼谷市中心酒店"
+        assert hotel["room_type"] == "豪华大床房"
+        assert hotel["breakfast_included"] is True
+        assert hotel["max_occupancy"] == 2
+
+        attraction_response = client.post(
+            "/resources/attraction-tickets",
+            json=attraction_payload
+        )
+        assert attraction_response.status_code == 200
+        attraction = attraction_response.json()["resource"]
+        assert attraction["resource_name"] == "故宫成人门票"
+
+        restaurant_response = client.post(
+            "/resources/restaurant-meals",
+            json=restaurant_payload
+        )
+        assert restaurant_response.status_code == 200
+        restaurant = restaurant_response.json()["resource"]
+        assert restaurant["meal_type"] == "lunch"
+        assert restaurant["price_per_person"] == 100
+
+        activity_response = client.post(
+            "/resources/activities",
+            json=activity_payload
+        )
+        assert activity_response.status_code == 200
+        activity = activity_response.json()["resource"]
+        assert activity["activity_type"] == "diving"
+        assert activity["duration"] == "2小时"
+        assert activity["suitable_people"] == "12岁以上健康人群"
+
+        for resource in (transport, hotel, attraction, restaurant, activity):
+            assert "stock_quantity" in resource
+            assert "sold_quantity" in resource
+            assert "reserved_quantity" in resource
+            assert "available_quantity" in resource
+            assert "available_dates" in resource
+
+        destination_filter = client.get(
+            "/resources/transport",
+            params={"destination": "泰国"}
+        )
+        assert destination_filter.json()["count"] == 1
+        wrong_destination_filter = client.get(
+            "/resources/transport",
+            params={"destination": "日本"}
+        )
+        assert wrong_destination_filter.json()["count"] == 0
+
+        supplier_filter = client.get(
+            "/resources/hotel-rooms",
+            params={"supplier_name": "测试酒店"}
+        )
+        assert supplier_filter.json()["count"] == 1
+        wrong_supplier_filter = client.get(
+            "/resources/hotel-rooms",
+            params={"supplier_name": "其他供应商"}
+        )
+        assert wrong_supplier_filter.json()["count"] == 0
+
+        inactive_filter = client.get(
+            "/resources/attraction-tickets",
+            params={"status": "inactive"}
+        )
+        assert inactive_filter.json()["count"] == 1
+        active_filter = client.get(
+            "/resources/attraction-tickets",
+            params={"status": "active"}
+        )
+        assert active_filter.json()["count"] == 0
+
+        max_cost_filter = client.get(
+            "/resources/activities",
+            params={"max_cost_price": 300}
+        )
+        assert max_cost_filter.json()["count"] == 1
+        low_max_cost_filter = client.get(
+            "/resources/activities",
+            params={"max_cost_price": 299}
+        )
+        assert low_max_cost_filter.json()["count"] == 0
+
+        available_filter = client.get(
+            "/resources/transport",
+            params={"available_on": "2026-07-01"}
+        )
+        assert available_filter.json()["count"] == 1
+        calendar_priority_filter = client.get(
+            "/resources/transport",
+            params={"available_on": "2026-07-15"}
+        )
+        assert calendar_priority_filter.json()["count"] == 0
+        unavailable_filter = client.get(
+            "/resources/transport",
+            params={"available_on": "2026-09-01"}
+        )
+        assert unavailable_filter.json()["count"] == 0
+
+        range_fallback_filter = client.get(
+            "/resources/hotel-rooms",
+            params={"available_on": "2026-07-15"}
+        )
+        assert range_fallback_filter.json()["count"] == 1
+        range_fallback_outside_filter = client.get(
+            "/resources/hotel-rooms",
+            params={"available_on": "2026-08-01"}
+        )
+        assert range_fallback_outside_filter.json()["count"] == 0
+
+        has_stock_filter = client.get(
+            "/resources/transport",
+            params={"has_stock": True}
+        )
+        assert has_stock_filter.json()["count"] == 1
+        no_stock_transport_filter = client.get(
+            "/resources/transport",
+            params={"has_stock": False}
+        )
+        assert no_stock_transport_filter.json()["count"] == 0
+        no_stock_hotel_filter = client.get(
+            "/resources/hotel-rooms",
+            params={"has_stock": False}
+        )
+        assert no_stock_hotel_filter.json()["count"] == 1
+
+        invalid_status_response = client.post(
+            "/resources/attraction-tickets",
+            json={**attraction_payload, "status": "archived"}
+        )
+        assert invalid_status_response.status_code == 422
+
+        for inventory_field in (
+            "stock_quantity",
+            "sold_quantity",
+            "reserved_quantity",
+        ):
+            negative_inventory_response = client.post(
+                "/resources/transport",
+                json={**transport_payload, inventory_field: -1}
+            )
+            assert negative_inventory_response.status_code == 422
+
+        excessive_allocation_response = client.post(
+            "/resources/transport",
+            json={
+                **transport_payload,
+                "stock_quantity": 5,
+                "sold_quantity": 3,
+                "reserved_quantity": 3
+            }
+        )
+        assert excessive_allocation_response.status_code == 422
+
+        invalid_available_dates_response = client.post(
+            "/resources/transport",
+            json={**transport_payload, "available_dates": ["invalid-date"]}
+        )
+        assert invalid_available_dates_response.status_code == 422
+
+        negative_cost_response = client.post(
+            "/resources/restaurant-meals",
+            json={**restaurant_payload, "cost_price": -1}
+        )
+        assert negative_cost_response.status_code == 422
+
+        negative_sale_response = client.post(
+            "/resources/activities",
+            json={**activity_payload, "sale_price": -1}
+        )
+        assert negative_sale_response.status_code == 422
+
+
 def test_ai_strategy_uses_product_route_and_real_product_data(tmp_path, monkeypatch):
     monkeypatch.setenv("SQLITE_DB_PATH", str(tmp_path / "travel_test.db"))
 
