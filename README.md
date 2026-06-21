@@ -21,11 +21,15 @@ apps/backend/api/recommendation.py   产品推荐和 AI 策略接口
 apps/backend/api/follow_up_task.py   销售跟进任务接口
 apps/backend/api/resource.py         旅游资源与成本中心接口
 apps/backend/api/order.py            订单交易与履约中心接口
+apps/backend/api/profit.py           订单利润中心接口
+apps/backend/api/ceo_agent.py        CEO Agent 经营分析接口
 apps/backend/services/agent_team.py  多智能体策略分析服务
 apps/backend/services/recommendation_scoring.py  产品推荐规则评分服务
 apps/backend/services/inventory_service.py  库存一致性服务
 apps/backend/services/order_state_machine.py  订单状态机
 apps/backend/services/payment_guard.py  支付事件幂等控制
+apps/backend/services/profit_service.py  订单利润实时计算服务
+apps/backend/services/ceo_agent_service.py  规则化经营分析服务
 tests/                               自动化测试
 ```
 
@@ -134,6 +138,13 @@ http://127.0.0.1:8000/docs
 | POST | `/orders/{order_id}/reminders` | 创建订单提醒 |
 | GET | `/orders/{order_id}/reminders` | 查询订单提醒 |
 | PATCH | `/orders/{order_id}/reminders/{reminder_id}/status` | 更新提醒状态 |
+| GET | `/profit/orders/{order_id}` | 计算单个订单收入、资源成本、保险收入、毛利和毛利率 |
+| GET | `/profit/summary` | 汇总订单利润，支持目的地、日期、销售及订单/支付状态筛选 |
+| GET | `/profit/orders/high-profit` | 查询高利润订单 |
+| GET | `/profit/orders/risk` | 查询低利润、亏损、未支付、取消或成本缺失订单 |
+| GET | `/ceo-agent/daily-report` | 生成规则化 CEO 每日经营日报 |
+| GET | `/ceo-agent/risk-alerts` | 生成订单利润与经营集中度风险预警 |
+| GET | `/ceo-agent/recommendations` | 生成规则化经营建议 |
 | POST | `/products/{product_id}/ai-collaborative-strategy` | 基于真实产品数据生成多智能体营销策略 |
 
 ## 推荐评分规则
@@ -182,6 +193,23 @@ http://127.0.0.1:8000/docs
 - **状态机控制**：`OrderStateMachine` 是 `order_status` 的唯一更新入口，只允许 `draft → pending_payment → paid → fulfilling → completed`，并允许未支付订单从 `draft` 或 `pending_payment` 取消。已支付订单拒绝取消。
 - **防超卖设计**：订单创建、支付、取消和保险金额变更均使用 `BEGIN IMMEDIATE` 事务；库存锁定同时使用带可用库存条件的原子 `UPDATE`，并由数据库约束保证 `sold_quantity + reserved_quantity <= stock_quantity`。
 - **防错账设计**：支付、库存转换和订单状态在同一事务中提交或回滚；支付后禁止保险修改 `total_amount`；合同操作不触碰金额和库存。SQLite 适用于当前单实例 MVP，多实例部署前仍需迁移到支持行级锁的生产数据库。
+
+## 第七优先级：利润中心 + CEO Agent MVP
+
+利润中心直接基于 `orders`、`order_items`、各资源表和 `order_insurances` 实时计算，不新增重复的利润快照表。当前能力包括：
+
+- 单订单利润计算：订单收入、资源成本、保险收入、毛利和毛利率。
+- 毛利率分析与利润分级：`high_profit`、`normal_profit`、`low_profit`、`loss`。
+- 利润汇总：支持目的地、日期、销售、订单状态和支付状态筛选。
+- 高利润订单识别：毛利率不低于 30%，或毛利不低于 1000 元。
+- 风险订单识别：覆盖负毛利、低毛利、成本缺失、未支付和已取消订单。
+- CEO Agent 每日经营日报：汇总收入、利润、订单、目的地、风险和高利润订单。
+- CEO Agent 风险预警：覆盖低毛利、负毛利、未支付、取消、成本缺失和目的地集中风险。
+- CEO Agent 经营建议：按规则提出调价、产品推广、成本补齐、催付、毛利控制和保险附加销售建议。
+
+利润口径：`order_revenue = orders.total_amount`，保险收入包含在订单总额中并单独披露；`resource_cost` 按订单资源数量乘以资源表当前 `cost_price` 计算；`gross_profit = order_revenue - resource_cost`。订单收入为 0 时毛利率返回 `0.0`，不会执行除零运算。无订单资源明细、资源记录丢失或成本值缺失时标记 `missing_resource_cost`，提醒人工补齐后再确认利润。
+
+本阶段不包含真实 AI 模型调用、真实财务系统、税务、发票、银行系统、外部 API 和前端页面。所有 CEO Agent 内容均由本地规则生成，不能替代正式财务核算和管理决策复核。
 
 ## 示例请求
 
@@ -343,8 +371,9 @@ pytest
 - 客户手机号等敏感信息后续需要接入权限控制和脱敏展示。
 - 任务生成当前由 `POST /follow-up-tasks/generate` 触发，尚未接入定时调度或外部消息通知。
 - 任务时间按 SQLite 中保存的本地 ISO 日期时间比较，正式多时区部署前需要统一时区策略。
-- 资源成本价和建议销售价是静态基础数据，本模块不执行动态打包、自动报价、利润核算或供应商结算。
+- 资源成本价和建议销售价是静态基础数据；利润中心按当前资源成本实时估算，不执行历史成本快照、动态打包、自动报价或供应商结算。
 - `available_dates`、`available_start_date` 和 `available_end_date` 仅表示静态可售日历，库存数量也是内部基础数据，不代表供应商实时确认。
 - 币种默认为 `CNY`，当前不包含汇率换算。
 - 订单明细保存创建当时的销售价快照，后续资源调价不会自动改写已有订单。
+- 订单资源成本当前未保存历史快照，资源成本价变化会影响历史订单的实时利润结果；正式财务核算前需引入成本快照或结算成本。
 - `mock-payment` 和 `mock-sign` 仅用于内部流程测试；当前不包含真实支付、退款、OCR、电子签、短信、邮件、微信通知、发票、供应商结算或外部库存锁定。
