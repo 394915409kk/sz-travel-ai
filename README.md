@@ -6,7 +6,7 @@
 
 当前版本是一个 FastAPI 后端 MVP，已完成最小业务闭环：
 
-客户提出需求 -> 系统保存咨询 -> 系统匹配产品 -> 返回推荐结果 -> 生成销售跟进任务 -> 销售完成跟进。
+客户提出需求 -> 系统保存咨询 -> 系统匹配产品 -> 返回推荐结果 -> 销售跟进 -> 建立订单 -> 资源履约。
 
 ## 代码结构
 
@@ -20,6 +20,7 @@ apps/backend/api/inquiry.py          客户咨询接口
 apps/backend/api/recommendation.py   产品推荐和 AI 策略接口
 apps/backend/api/follow_up_task.py   销售跟进任务接口
 apps/backend/api/resource.py         旅游资源与成本中心接口
+apps/backend/api/order.py            订单交易与履约中心接口
 apps/backend/services/agent_team.py  多智能体策略分析服务
 apps/backend/services/recommendation_scoring.py  产品推荐规则评分服务
 tests/                               自动化测试
@@ -113,6 +114,23 @@ http://127.0.0.1:8000/docs
 | GET | `/resources/restaurant-meals` | 查询餐饮资源 |
 | POST | `/resources/activities` | 创建玩乐项目资源 |
 | GET | `/resources/activities` | 查询玩乐项目资源 |
+| POST | `/orders` | 手动或基于咨询创建订单，并原子锁定资源库存 |
+| GET | `/orders` | 查询订单列表 |
+| GET | `/orders/{order_id}` | 查询订单及资源明细 |
+| PATCH | `/orders/{order_id}/status` | 更新订单状态 |
+| POST | `/orders/{order_id}/mock-payment` | 模拟支付并将预留库存转为已售 |
+| POST | `/orders/{order_id}/documents` | 记录订单证件资料 |
+| GET | `/orders/{order_id}/documents` | 查询订单证件资料 |
+| POST | `/insurance-products` | 创建保险产品 |
+| GET | `/insurance-products` | 查询保险产品 |
+| POST | `/orders/{order_id}/insurances` | 为订单选择保险 |
+| GET | `/orders/{order_id}/insurances` | 查询订单保险 |
+| POST | `/orders/{order_id}/contracts/generate` | 生成本地合同记录 |
+| GET | `/orders/{order_id}/contracts` | 查询订单合同 |
+| POST | `/orders/{order_id}/contracts/{contract_id}/mock-sign` | 模拟签署合同 |
+| POST | `/orders/{order_id}/reminders` | 创建订单提醒 |
+| GET | `/orders/{order_id}/reminders` | 查询订单提醒 |
+| PATCH | `/orders/{order_id}/reminders/{reminder_id}/status` | 更新提醒状态 |
 | POST | `/products/{product_id}/ai-collaborative-strategy` | 基于真实产品数据生成多智能体营销策略 |
 
 ## 推荐评分规则
@@ -147,6 +165,12 @@ http://127.0.0.1:8000/docs
 `available_dates` 在 SQLite 中保存为 JSON 日期数组。使用 `available_on` 查询时，如果资源存在非空的 `available_dates`，只按日历数组判断；日历为空时才使用 `available_start_date` 和 `available_end_date` 区间。
 
 所有查询接口支持 `destination`、`status`、`supplier_name`、`max_cost_price`、`available_on` 和 `has_stock` 筛选。`has_stock=true` 只返回可用库存大于 0 的资源；`has_stock=false` 只返回可用库存小于或等于 0 的资源；不传该参数时返回全部库存状态。
+
+## 订单交易与履约中心
+
+`orders` 保存订单客户、金额、支付状态和履约状态；`order_items` 保存订单引用的交通、酒店、门票、餐饮和玩乐资源、数量与销售价快照。订单可手动创建，也可通过 `inquiry_id` 继承咨询客户信息。
+
+创建订单时会在同一个 SQLite 事务中校验 `stock_quantity - sold_quantity - reserved_quantity` 并增加预留数量。模拟支付把订单预留库存转为已售，重复支付不会再次扣减；未支付订单取消时释放预留。证件、保险、合同和提醒均仅保存本地记录，不调用 OCR、电子签、支付或通知服务。
 
 ## 示例请求
 
@@ -263,6 +287,28 @@ curl "http://127.0.0.1:8000/resources/transport?destination=泰国&status=active
 curl "http://127.0.0.1:8000/resources/hotel-rooms?has_stock=false"
 ```
 
+手动创建订单并锁定资源库存：
+
+```bash
+curl -X POST http://127.0.0.1:8000/orders \
+  -H "Content-Type: application/json" \
+  -d '{
+    "customer_name": "测试客户",
+    "phone": "13800000000",
+    "destination": "泰国",
+    "people_count": 2,
+    "items": [
+      {"resource_type": "transport", "resource_id": 1, "quantity": 2}
+    ]
+  }'
+```
+
+执行模拟支付：
+
+```bash
+curl -X POST http://127.0.0.1:8000/orders/1/mock-payment
+```
+
 更新销售跟进状态：
 
 ```bash
@@ -287,3 +333,5 @@ pytest
 - 资源成本价和建议销售价是静态基础数据，本模块不执行动态打包、自动报价、利润核算或供应商结算。
 - `available_dates`、`available_start_date` 和 `available_end_date` 仅表示静态可售日历，库存数量也是内部基础数据，不代表供应商实时确认。
 - 币种默认为 `CNY`，当前不包含汇率换算。
+- 订单明细保存创建当时的销售价快照，后续资源调价不会自动改写已有订单。
+- `mock-payment` 和 `mock-sign` 仅用于内部流程测试；当前不包含真实支付、退款、OCR、电子签、短信、邮件、微信通知、发票、供应商结算或外部库存锁定。

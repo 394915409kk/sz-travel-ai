@@ -328,6 +328,155 @@ def init_travel_resource_tables(cursor):
         """)
 
 
+def init_order_tables(cursor):
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS orders (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        order_no TEXT NOT NULL UNIQUE,
+        inquiry_id INTEGER,
+        customer_name TEXT NOT NULL,
+        phone TEXT,
+        destination TEXT NOT NULL,
+        people_count INTEGER NOT NULL DEFAULT 1 CHECK (people_count > 0),
+        total_amount REAL NOT NULL DEFAULT 0 CHECK (total_amount >= 0),
+        paid_amount REAL NOT NULL DEFAULT 0 CHECK (paid_amount >= 0),
+        order_status TEXT NOT NULL DEFAULT 'pending_payment'
+            CHECK (
+                order_status IN (
+                    'draft', 'pending_payment', 'paid', 'fulfilling',
+                    'completed', 'cancelled'
+                )
+            ),
+        payment_status TEXT NOT NULL DEFAULT 'unpaid'
+            CHECK (payment_status IN ('unpaid', 'mock_paid', 'refunded')),
+        fulfillment_status TEXT NOT NULL DEFAULT 'pending'
+            CHECK (
+                fulfillment_status IN (
+                    'pending', 'documents_pending', 'contract_pending',
+                    'ready_to_travel', 'in_progress', 'completed'
+                )
+            ),
+        created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+        FOREIGN KEY (inquiry_id) REFERENCES inquiries(id)
+    )
+    """)
+
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS order_items (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        order_id INTEGER NOT NULL,
+        resource_type TEXT NOT NULL
+            CHECK (
+                resource_type IN (
+                    'transport', 'hotel_room', 'attraction_ticket',
+                    'restaurant_meal', 'activity'
+                )
+            ),
+        resource_id INTEGER NOT NULL,
+        quantity INTEGER NOT NULL CHECK (quantity > 0),
+        unit_price REAL NOT NULL CHECK (unit_price >= 0),
+        total_price REAL NOT NULL CHECK (total_price >= 0),
+        FOREIGN KEY (order_id) REFERENCES orders(id)
+    )
+    """)
+
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS order_documents (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        order_id INTEGER NOT NULL,
+        customer_name TEXT NOT NULL,
+        document_type TEXT NOT NULL,
+        document_number TEXT NOT NULL,
+        file_name TEXT,
+        file_url TEXT,
+        ocr_status TEXT NOT NULL DEFAULT 'pending'
+            CHECK (ocr_status = 'pending'),
+        ocr_raw_text TEXT,
+        verified_status TEXT NOT NULL DEFAULT 'pending'
+            CHECK (verified_status IN ('pending', 'verified', 'rejected')),
+        created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+        FOREIGN KEY (order_id) REFERENCES orders(id)
+    )
+    """)
+
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS insurance_products (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        provider TEXT NOT NULL,
+        coverage_summary TEXT,
+        price REAL NOT NULL CHECK (price >= 0),
+        status TEXT NOT NULL DEFAULT 'active'
+            CHECK (status IN ('active', 'inactive'))
+    )
+    """)
+
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS order_insurances (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        order_id INTEGER NOT NULL,
+        insurance_product_id INTEGER NOT NULL,
+        insured_customer_name TEXT NOT NULL,
+        price REAL NOT NULL CHECK (price >= 0),
+        FOREIGN KEY (order_id) REFERENCES orders(id),
+        FOREIGN KEY (insurance_product_id) REFERENCES insurance_products(id)
+    )
+    """)
+
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS order_contracts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        order_id INTEGER NOT NULL,
+        contract_no TEXT NOT NULL UNIQUE,
+        contract_status TEXT NOT NULL DEFAULT 'generated'
+            CHECK (contract_status IN ('generated', 'signed')),
+        contract_content TEXT NOT NULL,
+        signed_at TEXT,
+        FOREIGN KEY (order_id) REFERENCES orders(id)
+    )
+    """)
+
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS order_reminders (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        order_id INTEGER NOT NULL,
+        reminder_type TEXT NOT NULL,
+        title TEXT NOT NULL,
+        message TEXT NOT NULL,
+        remind_at TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending'
+            CHECK (status IN ('pending', 'completed', 'cancelled')),
+        FOREIGN KEY (order_id) REFERENCES orders(id)
+    )
+    """)
+
+    cursor.execute("""
+    CREATE INDEX IF NOT EXISTS idx_orders_status
+    ON orders (order_status, payment_status, fulfillment_status, created_at)
+    """)
+    cursor.execute("""
+    CREATE INDEX IF NOT EXISTS idx_order_items_order
+    ON order_items (order_id)
+    """)
+    cursor.execute("""
+    CREATE INDEX IF NOT EXISTS idx_order_documents_order
+    ON order_documents (order_id)
+    """)
+    cursor.execute("""
+    CREATE INDEX IF NOT EXISTS idx_order_insurances_order
+    ON order_insurances (order_id)
+    """)
+    cursor.execute("""
+    CREATE INDEX IF NOT EXISTS idx_order_contracts_order
+    ON order_contracts (order_id)
+    """)
+    cursor.execute("""
+    CREATE INDEX IF NOT EXISTS idx_order_reminders_order_status
+    ON order_reminders (order_id, status, remind_at)
+    """)
+
+
 def init_database():
     conn = get_connection()
     cursor = conn.cursor()
@@ -336,11 +485,12 @@ def init_database():
     init_inquiries_table(cursor)
     init_follow_up_tasks_table(cursor)
     init_travel_resource_tables(cursor)
+    init_order_tables(cursor)
 
     conn.commit()
     conn.close()
 
-    print("旅游产品、客户咨询、销售任务和旅游资源数据库初始化完成")
+    print("旅游产品、咨询、任务、资源和订单数据库初始化完成")
 
 
 if __name__ == "__main__":
