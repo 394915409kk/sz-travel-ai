@@ -143,6 +143,191 @@ def init_follow_up_tasks_table(cursor):
     """)
 
 
+def init_travel_resource_tables(cursor):
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS travel_transport_resources (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        destination TEXT NOT NULL,
+        resource_name TEXT NOT NULL,
+        supplier_name TEXT NOT NULL,
+        transport_type TEXT NOT NULL,
+        departure_city TEXT NOT NULL,
+        arrival_city TEXT NOT NULL,
+        cost_price REAL NOT NULL CHECK (cost_price >= 0),
+        sale_price REAL NOT NULL CHECK (sale_price >= 0),
+        stock_quantity INTEGER NOT NULL DEFAULT 0 CHECK (stock_quantity >= 0),
+        sold_quantity INTEGER NOT NULL DEFAULT 0 CHECK (sold_quantity >= 0),
+        reserved_quantity INTEGER NOT NULL DEFAULT 0 CHECK (reserved_quantity >= 0),
+        currency TEXT NOT NULL DEFAULT 'CNY',
+        available_start_date TEXT,
+        available_end_date TEXT,
+        available_dates TEXT,
+        status TEXT NOT NULL DEFAULT 'active'
+            CHECK (status IN ('active', 'inactive')),
+        created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+        CHECK (sold_quantity + reserved_quantity <= stock_quantity),
+        CHECK (
+            available_start_date IS NULL
+            OR available_end_date IS NULL
+            OR available_start_date <= available_end_date
+        )
+    )
+    """)
+
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS hotel_room_resources (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        destination TEXT NOT NULL,
+        resource_name TEXT NOT NULL,
+        supplier_name TEXT NOT NULL,
+        hotel_name TEXT NOT NULL,
+        room_type TEXT NOT NULL,
+        breakfast_included INTEGER NOT NULL DEFAULT 0
+            CHECK (breakfast_included IN (0, 1)),
+        max_occupancy INTEGER NOT NULL CHECK (max_occupancy > 0),
+        cost_price REAL NOT NULL CHECK (cost_price >= 0),
+        sale_price REAL NOT NULL CHECK (sale_price >= 0),
+        stock_quantity INTEGER NOT NULL DEFAULT 0 CHECK (stock_quantity >= 0),
+        sold_quantity INTEGER NOT NULL DEFAULT 0 CHECK (sold_quantity >= 0),
+        reserved_quantity INTEGER NOT NULL DEFAULT 0 CHECK (reserved_quantity >= 0),
+        currency TEXT NOT NULL DEFAULT 'CNY',
+        available_start_date TEXT,
+        available_end_date TEXT,
+        available_dates TEXT,
+        status TEXT NOT NULL DEFAULT 'active'
+            CHECK (status IN ('active', 'inactive')),
+        created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+        CHECK (sold_quantity + reserved_quantity <= stock_quantity),
+        CHECK (
+            available_start_date IS NULL
+            OR available_end_date IS NULL
+            OR available_start_date <= available_end_date
+        )
+    )
+    """)
+
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS attraction_ticket_resources (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        destination TEXT NOT NULL,
+        resource_name TEXT NOT NULL,
+        supplier_name TEXT NOT NULL,
+        cost_price REAL NOT NULL CHECK (cost_price >= 0),
+        sale_price REAL NOT NULL CHECK (sale_price >= 0),
+        stock_quantity INTEGER NOT NULL DEFAULT 0 CHECK (stock_quantity >= 0),
+        sold_quantity INTEGER NOT NULL DEFAULT 0 CHECK (sold_quantity >= 0),
+        reserved_quantity INTEGER NOT NULL DEFAULT 0 CHECK (reserved_quantity >= 0),
+        currency TEXT NOT NULL DEFAULT 'CNY',
+        available_start_date TEXT,
+        available_end_date TEXT,
+        available_dates TEXT,
+        status TEXT NOT NULL DEFAULT 'active'
+            CHECK (status IN ('active', 'inactive')),
+        created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+        CHECK (sold_quantity + reserved_quantity <= stock_quantity),
+        CHECK (
+            available_start_date IS NULL
+            OR available_end_date IS NULL
+            OR available_start_date <= available_end_date
+        )
+    )
+    """)
+
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS restaurant_meal_resources (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        destination TEXT NOT NULL,
+        resource_name TEXT NOT NULL,
+        supplier_name TEXT NOT NULL,
+        meal_type TEXT NOT NULL,
+        price_per_person REAL NOT NULL CHECK (price_per_person >= 0),
+        cost_price REAL NOT NULL CHECK (cost_price >= 0),
+        sale_price REAL NOT NULL CHECK (sale_price >= 0),
+        stock_quantity INTEGER NOT NULL DEFAULT 0 CHECK (stock_quantity >= 0),
+        sold_quantity INTEGER NOT NULL DEFAULT 0 CHECK (sold_quantity >= 0),
+        reserved_quantity INTEGER NOT NULL DEFAULT 0 CHECK (reserved_quantity >= 0),
+        currency TEXT NOT NULL DEFAULT 'CNY',
+        available_start_date TEXT,
+        available_end_date TEXT,
+        available_dates TEXT,
+        status TEXT NOT NULL DEFAULT 'active'
+            CHECK (status IN ('active', 'inactive')),
+        created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+        CHECK (sold_quantity + reserved_quantity <= stock_quantity),
+        CHECK (
+            available_start_date IS NULL
+            OR available_end_date IS NULL
+            OR available_start_date <= available_end_date
+        )
+    )
+    """)
+
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS activity_resources (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        destination TEXT NOT NULL,
+        resource_name TEXT NOT NULL,
+        supplier_name TEXT NOT NULL,
+        activity_type TEXT NOT NULL,
+        duration TEXT NOT NULL,
+        suitable_people TEXT NOT NULL,
+        cost_price REAL NOT NULL CHECK (cost_price >= 0),
+        sale_price REAL NOT NULL CHECK (sale_price >= 0),
+        stock_quantity INTEGER NOT NULL DEFAULT 0 CHECK (stock_quantity >= 0),
+        sold_quantity INTEGER NOT NULL DEFAULT 0 CHECK (sold_quantity >= 0),
+        reserved_quantity INTEGER NOT NULL DEFAULT 0 CHECK (reserved_quantity >= 0),
+        currency TEXT NOT NULL DEFAULT 'CNY',
+        available_start_date TEXT,
+        available_end_date TEXT,
+        available_dates TEXT,
+        status TEXT NOT NULL DEFAULT 'active'
+            CHECK (status IN ('active', 'inactive')),
+        created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+        CHECK (sold_quantity + reserved_quantity <= stock_quantity),
+        CHECK (
+            available_start_date IS NULL
+            OR available_end_date IS NULL
+            OR available_start_date <= available_end_date
+        )
+    )
+    """)
+
+    resource_tables = (
+        "travel_transport_resources",
+        "hotel_room_resources",
+        "attraction_ticket_resources",
+        "restaurant_meal_resources",
+        "activity_resources",
+    )
+    inventory_columns = {
+        "stock_quantity": (
+            "INTEGER NOT NULL DEFAULT 0 CHECK (stock_quantity >= 0)"
+        ),
+        "sold_quantity": (
+            "INTEGER NOT NULL DEFAULT 0 CHECK (sold_quantity >= 0)"
+        ),
+        "reserved_quantity": (
+            "INTEGER NOT NULL DEFAULT 0 CHECK (reserved_quantity >= 0)"
+        ),
+        "available_dates": "TEXT",
+    }
+
+    for table_name in resource_tables:
+        cursor.execute(f"PRAGMA table_info({table_name})")
+        existing_columns = {row["name"] for row in cursor.fetchall()}
+        for column_name, column_definition in inventory_columns.items():
+            if column_name not in existing_columns:
+                cursor.execute(
+                    f"ALTER TABLE {table_name} "
+                    f"ADD COLUMN {column_name} {column_definition}"
+                )
+
+        cursor.execute(f"""
+        CREATE INDEX IF NOT EXISTS idx_{table_name}_filters
+        ON {table_name} (destination, status, supplier_name, cost_price)
+        """)
+
+
 def init_database():
     conn = get_connection()
     cursor = conn.cursor()
@@ -150,11 +335,12 @@ def init_database():
     init_products_table(cursor)
     init_inquiries_table(cursor)
     init_follow_up_tasks_table(cursor)
+    init_travel_resource_tables(cursor)
 
     conn.commit()
     conn.close()
 
-    print("旅游产品、客户咨询和销售跟进任务数据库初始化完成")
+    print("旅游产品、客户咨询、销售任务和旅游资源数据库初始化完成")
 
 
 if __name__ == "__main__":

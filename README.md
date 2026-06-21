@@ -19,6 +19,7 @@ apps/backend/api/travel.py           旅游产品接口
 apps/backend/api/inquiry.py          客户咨询接口
 apps/backend/api/recommendation.py   产品推荐和 AI 策略接口
 apps/backend/api/follow_up_task.py   销售跟进任务接口
+apps/backend/api/resource.py         旅游资源与成本中心接口
 apps/backend/services/agent_team.py  多智能体策略分析服务
 apps/backend/services/recommendation_scoring.py  产品推荐规则评分服务
 tests/                               自动化测试
@@ -102,6 +103,16 @@ http://127.0.0.1:8000/docs
 | GET | `/follow-up-tasks/today` | 查询今天及以前到期的 pending 任务 |
 | GET | `/follow-up-tasks/{task_id}` | 查询单个销售跟进任务 |
 | PATCH | `/follow-up-tasks/{task_id}/status` | 更新任务状态并记录完成时间 |
+| POST | `/resources/transport` | 创建交通资源 |
+| GET | `/resources/transport` | 查询交通资源 |
+| POST | `/resources/hotel-rooms` | 创建酒店房型资源 |
+| GET | `/resources/hotel-rooms` | 查询酒店房型资源 |
+| POST | `/resources/attraction-tickets` | 创建景点门票资源 |
+| GET | `/resources/attraction-tickets` | 查询景点门票资源 |
+| POST | `/resources/restaurant-meals` | 创建餐饮资源 |
+| GET | `/resources/restaurant-meals` | 查询餐饮资源 |
+| POST | `/resources/activities` | 创建玩乐项目资源 |
+| GET | `/resources/activities` | 查询玩乐项目资源 |
 | POST | `/products/{product_id}/ai-collaborative-strategy` | 基于真实产品数据生成多智能体营销策略 |
 
 ## 推荐评分规则
@@ -113,6 +124,29 @@ http://127.0.0.1:8000/docs
 ## 销售跟进任务模块
 
 `follow_up_tasks` 根据咨询的 `assigned_sales`、`priority` 和 `next_follow_up_at` 生成销售待办。同一咨询已有 `pending` 或 `done` 任务时不重复生成；任务状态更新为 `done` 时自动写入 `completed_at`。
+
+## 旅游资源与成本中心
+
+资源中心统一管理目的地、资源名称、供应商、成本价、建议销售价、币种、可售日历、库存和状态。当前包含以下数据表：
+
+| 数据表 | 资源类型 | 特有字段 |
+|---|---|---|
+| `travel_transport_resources` | 交通 | 交通类型、出发城市、到达城市 |
+| `hotel_room_resources` | 酒店房型 | 酒店、房型、早餐、最大入住人数 |
+| `attraction_ticket_resources` | 景点门票 | 通用资源与价格字段 |
+| `restaurant_meal_resources` | 餐饮 | 餐别、人均价格 |
+| `activity_resources` | 玩乐项目 | 项目类型、时长、适合人群 |
+
+所有资源表包含以下库存字段：
+
+- `stock_quantity`：总库存，默认为 0。
+- `sold_quantity`：已售数量，默认为 0。
+- `reserved_quantity`：预留数量，默认为 0。
+- `available_quantity`：接口动态计算，等于总库存减已售和预留数量。
+
+`available_dates` 在 SQLite 中保存为 JSON 日期数组。使用 `available_on` 查询时，如果资源存在非空的 `available_dates`，只按日历数组判断；日历为空时才使用 `available_start_date` 和 `available_end_date` 区间。
+
+所有查询接口支持 `destination`、`status`、`supplier_name`、`max_cost_price`、`available_on` 和 `has_stock` 筛选。`has_stock=true` 只返回可用库存大于 0 的资源；`has_stock=false` 只返回可用库存小于或等于 0 的资源；不传该参数时返回全部库存状态。
 
 ## 示例请求
 
@@ -194,6 +228,41 @@ curl -X PATCH http://127.0.0.1:8000/follow-up-tasks/1/status \
   -d '{"task_status": "done"}'
 ```
 
+创建交通资源：
+
+```bash
+curl -X POST http://127.0.0.1:8000/resources/transport \
+  -H "Content-Type: application/json" \
+  -d '{
+    "destination": "泰国",
+    "resource_name": "深圳往返曼谷机票",
+    "supplier_name": "测试航空供应商",
+    "transport_type": "flight",
+    "departure_city": "深圳",
+    "arrival_city": "曼谷",
+    "cost_price": 1800,
+    "sale_price": 2200,
+    "stock_quantity": 10,
+    "sold_quantity": 2,
+    "reserved_quantity": 3,
+    "available_start_date": "2026-07-01",
+    "available_end_date": "2026-08-31",
+    "available_dates": ["2026-07-01", "2026-07-02"]
+  }'
+```
+
+查询指定日期可用、有库存且成本不高于 2000 元的泰国交通资源：
+
+```bash
+curl "http://127.0.0.1:8000/resources/transport?destination=泰国&status=active&max_cost_price=2000&available_on=2026-07-01&has_stock=true"
+```
+
+查询无可用库存的酒店房型：
+
+```bash
+curl "http://127.0.0.1:8000/resources/hotel-rooms?has_stock=false"
+```
+
 更新销售跟进状态：
 
 ```bash
@@ -215,3 +284,6 @@ pytest
 - 客户手机号等敏感信息后续需要接入权限控制和脱敏展示。
 - 任务生成当前由 `POST /follow-up-tasks/generate` 触发，尚未接入定时调度或外部消息通知。
 - 任务时间按 SQLite 中保存的本地 ISO 日期时间比较，正式多时区部署前需要统一时区策略。
+- 资源成本价和建议销售价是静态基础数据，本模块不执行动态打包、自动报价、利润核算或供应商结算。
+- `available_dates`、`available_start_date` 和 `available_end_date` 仅表示静态可售日历，库存数量也是内部基础数据，不代表供应商实时确认。
+- 币种默认为 `CNY`，当前不包含汇率换算。
