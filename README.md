@@ -6,7 +6,7 @@
 
 当前版本是一个 FastAPI 后端 MVP，已完成最小业务闭环：
 
-客户提出需求 -> 系统保存咨询 -> 系统匹配产品 -> 返回推荐结果 -> 销售跟进 -> 建立订单 -> 资源履约。
+客户提出需求 -> 系统保存咨询 -> 系统匹配产品/资源 -> 自动报价与动态定价 -> 销售确认 -> 报价转订单 -> 资源履约。
 
 ## 代码结构
 
@@ -23,6 +23,7 @@ apps/backend/api/resource.py         旅游资源与成本中心接口
 apps/backend/api/order.py            订单交易与履约中心接口
 apps/backend/api/profit.py           订单利润中心接口
 apps/backend/api/ceo_agent.py        CEO Agent 经营分析接口
+apps/backend/api/quote.py            自动报价与动态定价中心接口
 apps/backend/services/agent_team.py  多智能体策略分析服务
 apps/backend/services/recommendation_scoring.py  产品推荐规则评分服务
 apps/backend/services/inventory_service.py  库存一致性服务
@@ -30,6 +31,9 @@ apps/backend/services/order_state_machine.py  订单状态机
 apps/backend/services/payment_guard.py  支付事件幂等控制
 apps/backend/services/profit_service.py  订单利润实时计算服务
 apps/backend/services/ceo_agent_service.py  规则化经营分析服务
+apps/backend/services/pricing_service.py  规则化动态定价服务
+apps/backend/services/quote_service.py  报价生成、查询与状态服务
+apps/backend/services/quote_to_order_service.py  报价转订单事务服务
 tests/                               自动化测试
 ```
 
@@ -138,6 +142,12 @@ http://127.0.0.1:8000/docs
 | POST | `/orders/{order_id}/reminders` | 创建订单提醒 |
 | GET | `/orders/{order_id}/reminders` | 查询订单提醒 |
 | PATCH | `/orders/{order_id}/reminders/{reminder_id}/status` | 更新提醒状态 |
+| POST | `/quotes/generate` | 按咨询或手动客户信息生成报价方案与报价明细 |
+| GET | `/quotes` | 查询报价列表，支持目的地、状态、咨询、日期、毛利率和价格筛选 |
+| GET | `/quotes/{quote_id}` | 查询单个报价及报价明细 |
+| PATCH | `/quotes/{quote_id}/status` | 更新报价状态 |
+| GET | `/quotes/{quote_id}/profit-preview` | 查询报价利润预估和风险提示 |
+| POST | `/quotes/{quote_id}/convert-to-order` | 将 proposed 或 accepted 报价原子转换为订单并锁定库存 |
 | GET | `/profit/orders/{order_id}` | 计算单个订单收入、资源成本、保险收入、毛利和毛利率 |
 | GET | `/profit/summary` | 汇总订单利润，支持目的地、日期、销售及订单/支付状态筛选 |
 | GET | `/profit/orders/high-profit` | 查询高利润订单 |
@@ -210,6 +220,25 @@ http://127.0.0.1:8000/docs
 利润口径：`order_revenue = orders.total_amount`，保险收入包含在订单总额中并单独披露；`resource_cost` 按订单资源数量乘以资源表当前 `cost_price` 计算；`gross_profit = order_revenue - resource_cost`。订单收入为 0 时毛利率返回 `0.0`，不会执行除零运算。无订单资源明细、资源记录丢失或成本值缺失时标记 `missing_resource_cost`，提醒人工补齐后再确认利润。
 
 本阶段不包含真实 AI 模型调用、真实财务系统、税务、发票、银行系统、外部 API 和前端页面。所有 CEO Agent 内容均由本地规则生成，不能替代正式财务核算和管理决策复核。
+
+## 第八优先级：自动报价与动态定价中心 MVP
+
+报价中心把客户咨询、资源成本、目标毛利和订单库存一致性连接成后端闭环。`quotes` 保存报价方案和利润预估，`quote_items` 保存资源、数量、成本和报价快照。报价可从 `inquiry_id` 继承客户、目的地、预算和出发日期，也可使用手动客户信息生成；未指定资源时，系统按目的地从当前在售且库存充足的资源中自动选择 MVP 组合。
+
+当前规则化能力包括：
+
+- 自动报价生成与报价明细计算。
+- 按目标毛利率计算最低保护售价，资源建议售价不足时执行毛利保护。
+- 可用库存不高于 2 时加价 10%，不高于 5 时加价 5%。
+- 出发日期距当前日期不超过 7 天时加价 8%，不超过 14 天时加价 4%。
+- 客户预算达到基础报价 120% 时识别高利润机会，最多上调基础报价的 5%，且不超过客户预算。
+- 报价超过预算时不强行降到亏损价，输出销售沟通或调整资源方案建议。
+- 输出基础成本、最终报价、预计利润、预计毛利率、风险标记和报价建议。
+- 支持报价列表/详情查询、状态更新、利润预估和报价转订单。
+
+报价生成只读取资源库存，不预留或扣减库存。只有 `proposed` 或 `accepted` 报价可以转订单；`rejected`、`expired` 和已转订单报价不能转换。转订单在单个 SQLite `BEGIN IMMEDIATE` 事务中创建订单，并逐项调用 `InventoryConsistencyService.lock_stock()` 锁定库存；任一资源库存不足时，订单、库存和报价状态整体回滚。同一报价只能转换一次，成功后状态更新为 `converted_to_order`，订单金额固定使用报价 `final_price`。
+
+本阶段不包含真实 AI 模型调用、前端页面、真实 OTA、真实航司/酒店接口、真实财务系统、税务、发票、银行系统和外部 API。动态定价全部由本地可审计规则完成，正式对客前仍需销售人工复核资源、价格和库存。
 
 ## 示例请求
 
