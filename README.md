@@ -31,6 +31,7 @@ apps/backend/api/content_marketing.py 内容营销中心接口
 apps/backend/api/customer_lifecycle.py 客户生命周期与复购接口
 apps/backend/api/supply_chain.py      供应链与采购优化接口
 apps/backend/api/finance_control.py   内部财务对账与风控接口
+apps/backend/api/dashboard.py         管理驾驶舱接口
 apps/backend/services/agent_team.py  多智能体策略分析服务
 apps/backend/services/recommendation_scoring.py  产品推荐规则评分服务
 apps/backend/services/inventory_service.py  库存一致性服务
@@ -46,6 +47,7 @@ apps/backend/services/content_marketing_service.py  规则化内容生成服务
 apps/backend/services/customer_lifecycle_service.py 客户画像与复购服务
 apps/backend/services/supply_chain_service.py 供应商表现与采购建议服务
 apps/backend/services/finance_control_service.py 内部对账与风险服务
+apps/backend/services/dashboard_service.py 跨模块经营汇总服务
 tests/                               自动化测试
 ```
 
@@ -201,6 +203,12 @@ http://127.0.0.1:8000/docs
 | GET | `/finance-control/reconciliation-report` | 生成并保存内部对账报告 |
 | GET | `/finance-control/overdue` | 查询逾期记录 |
 | GET | `/finance-control/risk-alerts` | 查询财务对账风险 |
+| GET | `/dashboard/overview` | 查询老板经营总览 |
+| GET | `/dashboard/today` | 查询今日线索、报价、订单、销售额和毛利 |
+| GET | `/dashboard/sales` | 查询销售待办与成交阶段 |
+| GET | `/dashboard/profit` | 查询利润汇总与风险订单 |
+| GET | `/dashboard/risks` | 查询跨模块风险摘要 |
+| GET | `/dashboard/actions` | 查询规则化经营行动建议 |
 | POST | `/products/{product_id}/ai-collaborative-strategy` | 基于真实产品数据生成多智能体营销策略 |
 
 ## 推荐评分规则
@@ -315,6 +323,12 @@ http://127.0.0.1:8000/docs
 `finance_records` 按订单幂等生成客户应收和分供应商资源成本，金额禁止为负；`reconciliation_reports` 按日期保存应收、实收、应付、实付、内部毛利和风险金额。相同订单、记录类型和对手方不会重复生成；订单后续完成 Mock 支付时，再次同步会把既有应收更新为已付而不新增记录。到期日早于当前日期的 pending 记录自动标记 `overdue` 与 `FINANCE_RECONCILIATION_RISK`；收入为零时仍不会发生除零。内部毛利口径为生成账务记录的应收减应付，正式财务利润仍应以会计确认口径为准。
 
 本模块不连接真实支付、银行、税务、发票或供应商结算系统，`paid` 仅为内部人工状态；自动生成的供应商成本读取当前资源成本，尚不是不可变会计凭证。生产化建议包括订单成本快照、凭证编号、双人复核、科目映射、会计期间锁定、退款冲销而非覆盖，以及银行/税务接入前的权限和审计设计。
+
+## Phase 6：管理驾驶舱 Dashboard API
+
+驾驶舱不新增重复业务表，实时汇总今日/累计线索、报价、订单、销售额、订单毛利、毛利率、销售待办、高意向客户、风险订单、低毛利、库存、供应链、财务、内容和复购机会，并嵌入规则化 CEO Agent 摘要与行动建议。销售额口径为订单 `total_amount`，毛利口径沿用利润中心；收入为零时毛利率为 0，避免除零。
+
+驾驶舱是管理视图，不改变订单、库存、支付或财务状态，也不替代正式会计报表。数据为空时返回 0 和可执行的数据补充建议。生产化建议包括统一业务时区、指标口径版本、缓存与快照、权限分层、数据延迟标识和前端钻取审计。
 
 ## 示例请求
 

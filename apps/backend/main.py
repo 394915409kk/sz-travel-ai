@@ -16,6 +16,7 @@ from apps.backend.api.content_marketing import router as content_marketing_route
 from apps.backend.api.customer_lifecycle import router as customer_lifecycle_router
 from apps.backend.api.supply_chain import router as supply_chain_router
 from apps.backend.api.finance_control import router as finance_control_router
+from apps.backend.api.dashboard import router as dashboard_router
 from apps.backend.init_db import init_database
 
 
@@ -54,3 +55,4 @@ app.include_router(content_marketing_router)
 app.include_router(customer_lifecycle_router)
 app.include_router(supply_chain_router)
 app.include_router(finance_control_router)
+app.include_router(dashboard_router)
