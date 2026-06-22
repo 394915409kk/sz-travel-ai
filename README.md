@@ -28,6 +28,7 @@ apps/backend/api/ceo_agent.py        CEO Agent 经营分析接口
 apps/backend/api/quote.py            自动报价与动态定价中心接口
 apps/backend/api/sales_conversion.py 销售成交自动化中心接口
 apps/backend/api/content_marketing.py 内容营销中心接口
+apps/backend/api/customer_lifecycle.py 客户生命周期与复购接口
 apps/backend/services/agent_team.py  多智能体策略分析服务
 apps/backend/services/recommendation_scoring.py  产品推荐规则评分服务
 apps/backend/services/inventory_service.py  库存一致性服务
@@ -40,6 +41,7 @@ apps/backend/services/quote_service.py  报价生成、查询与状态服务
 apps/backend/services/quote_to_order_service.py  报价转订单事务服务
 apps/backend/services/sales_conversion_service.py  成交评分与话术服务
 apps/backend/services/content_marketing_service.py  规则化内容生成服务
+apps/backend/services/customer_lifecycle_service.py 客户画像与复购服务
 tests/                               自动化测试
 ```
 
@@ -174,6 +176,14 @@ http://127.0.0.1:8000/docs
 | GET | `/content-marketing/calendar` | 查询内容任务日历 |
 | GET | `/content-marketing/{campaign_id}` | 查询内容详情 |
 | PATCH | `/content-marketing/{campaign_id}/status` | 更新草稿、就绪、发布或归档状态 |
+| POST | `/customer-lifecycle/profiles/generate` | 从历史订单重算客户画像 |
+| GET | `/customer-lifecycle/profiles` | 查询客户画像 |
+| GET | `/customer-lifecycle/profiles/{profile_id}` | 查询单个客户画像 |
+| GET | `/customer-lifecycle/high-value-customers` | 查询高价值客户 |
+| GET | `/customer-lifecycle/dormant-customers` | 查询沉睡客户 |
+| POST | `/customer-lifecycle/repurchase-tasks/generate` | 生成去重的复购任务 |
+| GET | `/customer-lifecycle/repurchase-tasks` | 查询复购任务 |
+| PATCH | `/customer-lifecycle/repurchase-tasks/{task_id}/status` | 更新复购任务状态 |
 | POST | `/products/{product_id}/ai-collaborative-strategy` | 基于真实产品数据生成多智能体营销策略 |
 
 ## 推荐评分规则
@@ -270,6 +280,12 @@ http://127.0.0.1:8000/docs
 `content_campaigns` 保存平台、内容类型、标题、正文、标签、行动引导、关联产品/资源、预计毛利、优先级与发布状态。内容优先级由历史咨询量、报价毛利率、当前可用库存比例、30 天出发窗口、高利润订单和当日经营风险共同组成；高毛利主题读取本地报价与订单利润，不伪造平台热度。小红书笔记、短视频脚本、海报、行程和促销文案均由可审计模板生成。
 
 本模块不连接小红书、抖音、视频号、微信或网站，也不自动发布或抓取外部热点；`published` 仅代表内部状态。所有价格、库存、出入境政策与营销承诺发布前必须人工核验。生产化建议包括接入经授权的平台发布审批、效果回传和线索归因，并将外部趋势数据标注来源与采集时间。
+
+## Phase 3：私域复购与客户生命周期中心
+
+`customer_profiles` 按客户姓名与电话聚合历史订单，保存订单数、消费额、实时利润汇总、偏好目的地、历史金额区间、最近订单、建议复购日期、复购概率和生命周期风险；`repurchase_tasks` 保存去重的销售复购待办。高价值规则为订单数不少于 3、累计消费不少于 10000 元或累计毛利不少于 3000 元；超过 180 天未下单标记沉睡风险。所有概率均限制在 0 到 1，订单收入为零时不做除零。
+
+本模块不自动联系客户、不调用微信/短信/邮件、不基于敏感信息做外部画像；推荐只是内部销售线索，需人工确认客户授权、预算和新需求。生产化建议包括客户身份去重、隐私授权与删除机制、节假日日历、销售归属继承和活动效果回传。
 
 ## 示例请求
 

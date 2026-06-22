@@ -658,6 +658,67 @@ def init_content_marketing_tables(cursor):
     """)
 
 
+def init_customer_lifecycle_tables(cursor):
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS customer_profiles (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        customer_name TEXT NOT NULL,
+        phone TEXT,
+        customer_level TEXT NOT NULL DEFAULT 'regular'
+            CHECK (customer_level IN ('regular', 'high_value')),
+        total_orders INTEGER NOT NULL DEFAULT 0 CHECK (total_orders >= 0),
+        total_spent REAL NOT NULL DEFAULT 0 CHECK (total_spent >= 0),
+        total_profit REAL NOT NULL DEFAULT 0,
+        preferred_destinations_json TEXT NOT NULL DEFAULT '[]',
+        preferred_budget_range TEXT,
+        last_order_at TEXT,
+        next_repurchase_date TEXT,
+        repurchase_probability REAL NOT NULL DEFAULT 0
+            CHECK (repurchase_probability >= 0 AND repurchase_probability <= 1),
+        lifecycle_stage TEXT NOT NULL DEFAULT 'new'
+            CHECK (lifecycle_stage IN ('new', 'active', 'high_value', 'dormant', 'lost')),
+        risk_flags_json TEXT NOT NULL DEFAULT '[]',
+        recommendation_text TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+    )
+    """)
+    cursor.execute("""
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_customer_profiles_identity
+    ON customer_profiles (customer_name, COALESCE(phone, ''))
+    """)
+    cursor.execute("""
+    CREATE INDEX IF NOT EXISTS idx_customer_profiles_value
+    ON customer_profiles (customer_level, lifecycle_stage, repurchase_probability)
+    """)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS repurchase_tasks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        customer_profile_id INTEGER NOT NULL,
+        customer_name TEXT NOT NULL,
+        phone TEXT,
+        recommended_destination TEXT,
+        recommended_product_id INTEGER,
+        reason TEXT NOT NULL,
+        priority TEXT NOT NULL DEFAULT 'medium'
+            CHECK (priority IN ('high', 'medium', 'low')),
+        due_date TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending'
+            CHECK (status IN ('pending', 'completed', 'cancelled')),
+        assigned_sales TEXT NOT NULL DEFAULT '未分配',
+        created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+        completed_at TEXT,
+        FOREIGN KEY (customer_profile_id) REFERENCES customer_profiles(id),
+        FOREIGN KEY (recommended_product_id) REFERENCES travel_products(id)
+    )
+    """)
+    cursor.execute("""
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_repurchase_tasks_active_profile
+    ON repurchase_tasks (customer_profile_id)
+    WHERE status = 'pending'
+    """)
+
+
 def init_database():
     conn = get_connection()
     cursor = conn.cursor()
@@ -670,6 +731,7 @@ def init_database():
     init_quote_tables(cursor)
     init_sales_conversion_tables(cursor)
     init_content_marketing_tables(cursor)
+    init_customer_lifecycle_tables(cursor)
 
     conn.commit()
     conn.close()
