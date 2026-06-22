@@ -719,6 +719,59 @@ def init_customer_lifecycle_tables(cursor):
     """)
 
 
+def init_supply_chain_tables(cursor):
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS supplier_performance (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        supplier_name TEXT NOT NULL,
+        resource_type TEXT NOT NULL,
+        destination TEXT NOT NULL,
+        total_resources INTEGER NOT NULL DEFAULT 0 CHECK (total_resources >= 0),
+        total_orders INTEGER NOT NULL DEFAULT 0 CHECK (total_orders >= 0),
+        total_revenue REAL NOT NULL DEFAULT 0,
+        total_cost REAL NOT NULL DEFAULT 0,
+        total_profit REAL NOT NULL DEFAULT 0,
+        average_margin REAL NOT NULL DEFAULT 0,
+        stockout_count INTEGER NOT NULL DEFAULT 0 CHECK (stockout_count >= 0),
+        cancellation_count INTEGER NOT NULL DEFAULT 0 CHECK (cancellation_count >= 0),
+        performance_score REAL NOT NULL DEFAULT 0
+            CHECK (performance_score >= 0 AND performance_score <= 100),
+        risk_flags_json TEXT NOT NULL DEFAULT '[]',
+        recommendation_text TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+        UNIQUE (supplier_name, resource_type, destination)
+    )
+    """)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS procurement_suggestions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        supplier_name TEXT NOT NULL,
+        resource_type TEXT NOT NULL,
+        destination TEXT NOT NULL,
+        suggested_action TEXT NOT NULL
+            CHECK (suggested_action IN ('increase_stock', 'reduce_stock', 'renegotiate_price', 'replace_supplier', 'keep_monitoring')),
+        suggested_quantity INTEGER NOT NULL DEFAULT 0 CHECK (suggested_quantity >= 0),
+        reason TEXT NOT NULL,
+        priority TEXT NOT NULL DEFAULT 'medium'
+            CHECK (priority IN ('high', 'medium', 'low')),
+        status TEXT NOT NULL DEFAULT 'pending'
+            CHECK (status IN ('pending', 'accepted', 'completed', 'dismissed')),
+        created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+    )
+    """)
+    cursor.execute("""
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_procurement_suggestions_active
+    ON procurement_suggestions (supplier_name, resource_type, destination, suggested_action)
+    WHERE status IN ('pending', 'accepted')
+    """)
+    cursor.execute("""
+    CREATE INDEX IF NOT EXISTS idx_supplier_performance_risk
+    ON supplier_performance (performance_score, stockout_count, cancellation_count)
+    """)
+
+
 def init_database():
     conn = get_connection()
     cursor = conn.cursor()
@@ -732,6 +785,7 @@ def init_database():
     init_sales_conversion_tables(cursor)
     init_content_marketing_tables(cursor)
     init_customer_lifecycle_tables(cursor)
+    init_supply_chain_tables(cursor)
 
     conn.commit()
     conn.close()

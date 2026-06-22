@@ -14,6 +14,7 @@ from apps.backend.api.ceo_agent import router as ceo_agent_router
 from apps.backend.api.sales_conversion import router as sales_conversion_router
 from apps.backend.api.content_marketing import router as content_marketing_router
 from apps.backend.api.customer_lifecycle import router as customer_lifecycle_router
+from apps.backend.api.supply_chain import router as supply_chain_router
 from apps.backend.init_db import init_database
 
 
@@ -50,3 +51,4 @@ app.include_router(quote_router)
 app.include_router(sales_conversion_router)
 app.include_router(content_marketing_router)
 app.include_router(customer_lifecycle_router)
+app.include_router(supply_chain_router)

@@ -29,6 +29,7 @@ apps/backend/api/quote.py            自动报价与动态定价中心接口
 apps/backend/api/sales_conversion.py 销售成交自动化中心接口
 apps/backend/api/content_marketing.py 内容营销中心接口
 apps/backend/api/customer_lifecycle.py 客户生命周期与复购接口
+apps/backend/api/supply_chain.py      供应链与采购优化接口
 apps/backend/services/agent_team.py  多智能体策略分析服务
 apps/backend/services/recommendation_scoring.py  产品推荐规则评分服务
 apps/backend/services/inventory_service.py  库存一致性服务
@@ -42,6 +43,7 @@ apps/backend/services/quote_to_order_service.py  报价转订单事务服务
 apps/backend/services/sales_conversion_service.py  成交评分与话术服务
 apps/backend/services/content_marketing_service.py  规则化内容生成服务
 apps/backend/services/customer_lifecycle_service.py 客户画像与复购服务
+apps/backend/services/supply_chain_service.py 供应商表现与采购建议服务
 tests/                               自动化测试
 ```
 
@@ -184,6 +186,13 @@ http://127.0.0.1:8000/docs
 | POST | `/customer-lifecycle/repurchase-tasks/generate` | 生成去重的复购任务 |
 | GET | `/customer-lifecycle/repurchase-tasks` | 查询复购任务 |
 | PATCH | `/customer-lifecycle/repurchase-tasks/{task_id}/status` | 更新复购任务状态 |
+| POST | `/supply-chain/analyze` | 重算供应商表现并生成采购建议 |
+| GET | `/supply-chain/suppliers` | 查询供应商表现 |
+| GET | `/supply-chain/suppliers/{supplier_name}` | 查询指定供应商表现 |
+| GET | `/supply-chain/procurement-suggestions` | 查询采购建议 |
+| PATCH | `/supply-chain/procurement-suggestions/{suggestion_id}/status` | 更新采购建议状态 |
+| GET | `/supply-chain/stockout-risks` | 查询缺货风险 |
+| GET | `/supply-chain/slow-moving-resources` | 查询无销售/预留的在库资源 |
 | POST | `/products/{product_id}/ai-collaborative-strategy` | 基于真实产品数据生成多智能体营销策略 |
 
 ## 推荐评分规则
@@ -286,6 +295,12 @@ http://127.0.0.1:8000/docs
 `customer_profiles` 按客户姓名与电话聚合历史订单，保存订单数、消费额、实时利润汇总、偏好目的地、历史金额区间、最近订单、建议复购日期、复购概率和生命周期风险；`repurchase_tasks` 保存去重的销售复购待办。高价值规则为订单数不少于 3、累计消费不少于 10000 元或累计毛利不少于 3000 元；超过 180 天未下单标记沉睡风险。所有概率均限制在 0 到 1，订单收入为零时不做除零。
 
 本模块不自动联系客户、不调用微信/短信/邮件、不基于敏感信息做外部画像；推荐只是内部销售线索，需人工确认客户授权、预算和新需求。生产化建议包括客户身份去重、隐私授权与删除机制、节假日日历、销售归属继承和活动效果回传。
+
+## Phase 4：供应链与采购优化中心
+
+`supplier_performance` 按供应商、资源类型和目的地汇总资源数、关联订单、销售额、成本、利润、毛利率、缺货和取消表现；`procurement_suggestions` 保存补货、减量、议价、替换或持续观察建议。缺货按 `stock - sold - reserved <= 0` 判断，滞销 MVP 按有库存但尚无已售和预留判断。收入、成本、利润与毛利率均可追溯到订单明细和当前资源成本，收入为零时毛利率返回 0。
+
+本模块不会自动采购、调库存、改供应商价格或发送外部指令；建议状态只用于内部工作流。滞销规则未包含真实采购批次与保质期，正式决策需人工复核未来团期和合同。生产化建议包括资源采购批次、释放期、供应商 SLA、取消责任、历史成本快照和审批审计。
 
 ## 示例请求
 
