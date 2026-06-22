@@ -834,7 +834,7 @@ def init_database():
     conn.commit()
     conn.close()
 
-    print("旅游产品、咨询、任务、资源、订单和报价数据库初始化完成")
+    print("旅游产品、咨询、任务、资源、订单、报价、销售成交和内容营销数据库初始化完成")
 
 
 if __name__ == "__main__":

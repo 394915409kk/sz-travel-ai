@@ -32,6 +32,7 @@ apps/backend/api/customer_lifecycle.py 客户生命周期与复购接口
 apps/backend/api/supply_chain.py      供应链与采购优化接口
 apps/backend/api/finance_control.py   内部财务对账与风控接口
 apps/backend/api/dashboard.py         管理驾驶舱接口
+apps/backend/api/system_health.py     系统健康与就绪检查接口
 apps/backend/services/agent_team.py  多智能体策略分析服务
 apps/backend/services/recommendation_scoring.py  产品推荐规则评分服务
 apps/backend/services/inventory_service.py  库存一致性服务
@@ -48,6 +49,7 @@ apps/backend/services/customer_lifecycle_service.py 客户画像与复购服务
 apps/backend/services/supply_chain_service.py 供应商表现与采购建议服务
 apps/backend/services/finance_control_service.py 内部对账与风险服务
 apps/backend/services/dashboard_service.py 跨模块经营汇总服务
+apps/backend/services/system_health_service.py 结构与一致性自检服务
 tests/                               自动化测试
 ```
 
@@ -209,6 +211,11 @@ http://127.0.0.1:8000/docs
 | GET | `/dashboard/profit` | 查询利润汇总与风险订单 |
 | GET | `/dashboard/risks` | 查询跨模块风险摘要 |
 | GET | `/dashboard/actions` | 查询规则化经营行动建议 |
+| GET | `/system-health` | 查询数据库、模块、风险和就绪总状态 |
+| GET | `/system-health/database` | 检查数据库可访问性和关键表 |
+| GET | `/system-health/modules` | 检查核心 API 模块导入与注册 |
+| GET | `/system-health/risks` | 检查库存、订单、报价、财务与测试覆盖风险 |
+| GET | `/system-health/readiness` | 判断是否满足 MVP 长期运行就绪条件 |
 | POST | `/products/{product_id}/ai-collaborative-strategy` | 基于真实产品数据生成多智能体营销策略 |
 
 ## 推荐评分规则
@@ -329,6 +336,16 @@ http://127.0.0.1:8000/docs
 驾驶舱不新增重复业务表，实时汇总今日/累计线索、报价、订单、销售额、订单毛利、毛利率、销售待办、高意向客户、风险订单、低毛利、库存、供应链、财务、内容和复购机会，并嵌入规则化 CEO Agent 摘要与行动建议。销售额口径为订单 `total_amount`，毛利口径沿用利润中心；收入为零时毛利率为 0，避免除零。
 
 驾驶舱是管理视图，不改变订单、库存、支付或财务状态，也不替代正式会计报表。数据为空时返回 0 和可执行的数据补充建议。生产化建议包括统一业务时区、指标口径版本、缓存与快照、权限分层、数据延迟标识和前端钻取审计。
+
+## Phase 7：系统健康检查与自动化运营中心
+
+健康中心执行 SQLite `quick_check`、21 张关键表检查、15 个核心 API 模块导入/注册检查，并识别负库存、在售缺货、报价已转换但无订单、已支付订单无法计算利润、逾期财务记录和核心测试文件缺失。`readiness` 只有在数据库/表、模块注册全部正常且无 critical 风险时才返回 `ready=true`；普通缺货等 warning 会保留提示但不误判为系统不可启动。
+
+健康检查只读核心订单、库存、支付与报价状态，不自动修复、不自动改价、不自动补库存。正式长期运行前建议增加外部监控、结构化日志、定时备份与恢复演练、告警通知审批、迁移版本表、生产数据库行级锁和多实例并发压测。
+
+## AI Travel Autonomous Revenue OS：MVP 边界
+
+本仓库现已形成“线索 → CRM → 推荐 → 资源/成本 → 报价/动态定价 → 成交推动 → 报价转订单 → 库存锁定 → Mock 支付/履约 → 利润/CEO → 内容获客 → 复购 → 供应链 → 内部财务对账 → 驾驶舱 → 健康检查”的后端闭环。所有新增智能能力均为本地可解释规则，不接真实支付、银行、税务、发票、短信、微信、邮件、OTA、航司、酒店或外部 AI API；涉及价格、库存、政策、对客内容、采购与财务状态时仍需人工复核。
 
 ## 示例请求
 
