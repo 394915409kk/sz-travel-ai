@@ -576,6 +576,50 @@ def init_quote_tables(cursor):
     """)
 
 
+def init_sales_conversion_tables(cursor):
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS sales_conversion_records (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        inquiry_id INTEGER,
+        quote_id INTEGER NOT NULL,
+        customer_name TEXT NOT NULL,
+        phone TEXT,
+        destination TEXT NOT NULL,
+        budget REAL CHECK (budget IS NULL OR budget >= 0),
+        final_price REAL NOT NULL CHECK (final_price >= 0),
+        conversion_probability REAL NOT NULL
+            CHECK (conversion_probability >= 0 AND conversion_probability <= 1),
+        conversion_stage TEXT NOT NULL DEFAULT 'new'
+            CHECK (
+                conversion_stage IN (
+                    'new', 'quoted', 'negotiating', 'high_intent',
+                    'low_intent', 'accepted', 'lost', 'converted'
+                )
+            ),
+        customer_objections_json TEXT NOT NULL DEFAULT '[]',
+        recommended_actions_json TEXT NOT NULL DEFAULT '[]',
+        follow_up_script TEXT NOT NULL,
+        risk_flags_json TEXT NOT NULL DEFAULT '[]',
+        next_best_action TEXT NOT NULL,
+        assigned_sales TEXT NOT NULL DEFAULT '未分配',
+        created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+        FOREIGN KEY (inquiry_id) REFERENCES inquiries(id),
+        FOREIGN KEY (quote_id) REFERENCES quotes(id)
+    )
+    """)
+    cursor.execute("""
+    CREATE INDEX IF NOT EXISTS idx_sales_conversion_priority
+    ON sales_conversion_records (
+        conversion_stage, conversion_probability, updated_at
+    )
+    """)
+    cursor.execute("""
+    CREATE INDEX IF NOT EXISTS idx_sales_conversion_quote
+    ON sales_conversion_records (quote_id, inquiry_id)
+    """)
+
+
 def init_database():
     conn = get_connection()
     cursor = conn.cursor()
@@ -586,6 +630,7 @@ def init_database():
     init_travel_resource_tables(cursor)
     init_order_tables(cursor)
     init_quote_tables(cursor)
+    init_sales_conversion_tables(cursor)
 
     conn.commit()
     conn.close()

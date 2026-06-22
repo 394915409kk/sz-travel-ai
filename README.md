@@ -8,6 +8,8 @@
 
 客户提出需求 -> 系统保存咨询 -> 系统匹配产品/资源 -> 自动报价与动态定价 -> 销售确认 -> 报价转订单 -> 资源履约。
 
+当前升级分支正在扩展为 **AI Travel Autonomous Revenue OS**。Phase 1 已加入销售成交自动化中心，把报价、CRM 优先级、跟进任务、预算差距、出发临近度和毛利风险组合成可解释的成交概率、风险标记、跟进话术与下一步动作。
+
 ## 代码结构
 
 ```text
@@ -24,6 +26,7 @@ apps/backend/api/order.py            订单交易与履约中心接口
 apps/backend/api/profit.py           订单利润中心接口
 apps/backend/api/ceo_agent.py        CEO Agent 经营分析接口
 apps/backend/api/quote.py            自动报价与动态定价中心接口
+apps/backend/api/sales_conversion.py 销售成交自动化中心接口
 apps/backend/services/agent_team.py  多智能体策略分析服务
 apps/backend/services/recommendation_scoring.py  产品推荐规则评分服务
 apps/backend/services/inventory_service.py  库存一致性服务
@@ -34,6 +37,7 @@ apps/backend/services/ceo_agent_service.py  规则化经营分析服务
 apps/backend/services/pricing_service.py  规则化动态定价服务
 apps/backend/services/quote_service.py  报价生成、查询与状态服务
 apps/backend/services/quote_to_order_service.py  报价转订单事务服务
+apps/backend/services/sales_conversion_service.py  成交评分与话术服务
 tests/                               自动化测试
 ```
 
@@ -155,6 +159,13 @@ http://127.0.0.1:8000/docs
 | GET | `/ceo-agent/daily-report` | 生成规则化 CEO 每日经营日报 |
 | GET | `/ceo-agent/risk-alerts` | 生成订单利润与经营集中度风险预警 |
 | GET | `/ceo-agent/recommendations` | 生成规则化经营建议 |
+| POST | `/sales-conversion/analyze` | 根据报价生成成交概率、风险与跟进建议 |
+| GET | `/sales-conversion` | 查询成交分析记录 |
+| GET | `/sales-conversion/high-intent` | 查询高意向成交机会 |
+| GET | `/sales-conversion/risk` | 查询成交风险记录 |
+| GET | `/sales-conversion/{record_id}` | 查询成交分析详情 |
+| PATCH | `/sales-conversion/{record_id}/stage` | 更新成交阶段 |
+| GET | `/sales-conversion/{record_id}/follow-up-script` | 获取规则化跟进话术 |
 | POST | `/products/{product_id}/ai-collaborative-strategy` | 基于真实产品数据生成多智能体营销策略 |
 
 ## 推荐评分规则
@@ -239,6 +250,12 @@ http://127.0.0.1:8000/docs
 报价生成只读取资源库存，不预留或扣减库存。只有 `proposed` 或 `accepted` 报价可以转订单；`rejected`、`expired` 和已转订单报价不能转换。转订单在单个 SQLite `BEGIN IMMEDIATE` 事务中创建订单，并逐项调用 `InventoryConsistencyService.lock_stock()` 锁定库存；任一资源库存不足时，订单、库存和报价状态整体回滚。同一报价只能转换一次，成功后状态更新为 `converted_to_order`，订单金额固定使用报价 `final_price`。
 
 本阶段不包含真实 AI 模型调用、前端页面、真实 OTA、真实航司/酒店接口、真实财务系统、税务、发票、银行系统和外部 API。动态定价全部由本地可审计规则完成，正式对客前仍需销售人工复核资源、价格和库存。
+
+## Phase 1：销售成交自动化中心
+
+`sales_conversion_records` 保存报价对应的成交概率、成交阶段、客户异议、建议动作、跟进话术和风险标记。概率严格限制在 0 到 1；评分读取报价是否有效、预算差距、CRM 优先级、跟进状态、销售任务、出发日期和预计毛利率。低预算、临近出发、缺少联系方式或未安排跟进会产生可解释风险，不会修改报价、订单或库存。
+
+本模块只使用规则模板，不调用外部 AI、短信、微信或邮件；话术是销售工作底稿，正式发送和报价承诺必须人工复核。生产化建议包括引入经授权的沟通渠道、保留发送审计记录、校准成交模型，并对个人信息实施分级权限和脱敏。
 
 ## 示例请求
 
