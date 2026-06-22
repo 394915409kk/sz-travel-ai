@@ -9,6 +9,7 @@ from apps.backend.api.follow_up_task import router as follow_up_task_router
 from apps.backend.api.resource import router as resource_router
 from apps.backend.api.order import router as order_router
 from apps.backend.api.profit import router as profit_router
+from apps.backend.api.quote import router as quote_router
 from apps.backend.api.ceo_agent import router as ceo_agent_router
 from apps.backend.init_db import init_database
 
@@ -42,3 +43,4 @@ app.include_router(resource_router)
 app.include_router(order_router)
 app.include_router(profit_router)
 app.include_router(ceo_agent_router)
+app.include_router(quote_router)

@@ -495,6 +495,87 @@ def init_order_tables(cursor):
     """)
 
 
+def init_quote_tables(cursor):
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS quotes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        quote_no TEXT NOT NULL UNIQUE,
+        inquiry_id INTEGER,
+        customer_name TEXT NOT NULL,
+        phone TEXT,
+        destination TEXT NOT NULL,
+        people_count INTEGER NOT NULL DEFAULT 1 CHECK (people_count > 0),
+        customer_budget REAL CHECK (customer_budget IS NULL OR customer_budget >= 0),
+        target_margin REAL NOT NULL CHECK (target_margin >= 0 AND target_margin < 1),
+        base_cost REAL NOT NULL DEFAULT 0 CHECK (base_cost >= 0),
+        base_price REAL NOT NULL DEFAULT 0 CHECK (base_price >= 0),
+        dynamic_adjustment REAL NOT NULL DEFAULT 0,
+        final_price REAL NOT NULL DEFAULT 0 CHECK (final_price >= 0),
+        estimated_profit REAL NOT NULL DEFAULT 0,
+        estimated_margin REAL NOT NULL DEFAULT 0,
+        quote_status TEXT NOT NULL DEFAULT 'draft'
+            CHECK (
+                quote_status IN (
+                    'draft', 'proposed', 'accepted', 'rejected',
+                    'expired', 'converted_to_order'
+                )
+            ),
+        pricing_strategy TEXT NOT NULL DEFAULT 'mixed'
+            CHECK (
+                pricing_strategy IN (
+                    'cost_plus', 'budget_based', 'inventory_based',
+                    'margin_protection', 'mixed'
+                )
+            ),
+        risk_flags TEXT NOT NULL DEFAULT '[]',
+        recommendation TEXT,
+        departure_date TEXT,
+        converted_order_id INTEGER UNIQUE,
+        created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+        FOREIGN KEY (inquiry_id) REFERENCES inquiries(id),
+        FOREIGN KEY (converted_order_id) REFERENCES orders(id)
+    )
+    """)
+
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS quote_items (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        quote_id INTEGER NOT NULL,
+        resource_type TEXT NOT NULL
+            CHECK (
+                resource_type IN (
+                    'transport', 'hotel_room', 'attraction_ticket',
+                    'restaurant_meal', 'activity'
+                )
+            ),
+        resource_id INTEGER NOT NULL,
+        resource_name TEXT NOT NULL,
+        quantity INTEGER NOT NULL CHECK (quantity > 0),
+        unit_cost REAL NOT NULL DEFAULT 0 CHECK (unit_cost >= 0),
+        unit_price REAL NOT NULL DEFAULT 0 CHECK (unit_price >= 0),
+        total_cost REAL NOT NULL DEFAULT 0 CHECK (total_cost >= 0),
+        total_price REAL NOT NULL DEFAULT 0 CHECK (total_price >= 0),
+        margin REAL NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+        FOREIGN KEY (quote_id) REFERENCES quotes(id)
+    )
+    """)
+
+    cursor.execute("""
+    CREATE INDEX IF NOT EXISTS idx_quotes_filters
+    ON quotes (destination, quote_status, inquiry_id, created_at)
+    """)
+    cursor.execute("""
+    CREATE INDEX IF NOT EXISTS idx_quotes_margin_price
+    ON quotes (estimated_margin, final_price)
+    """)
+    cursor.execute("""
+    CREATE INDEX IF NOT EXISTS idx_quote_items_quote
+    ON quote_items (quote_id, id)
+    """)
+
+
 def init_database():
     conn = get_connection()
     cursor = conn.cursor()
@@ -504,11 +585,12 @@ def init_database():
     init_follow_up_tasks_table(cursor)
     init_travel_resource_tables(cursor)
     init_order_tables(cursor)
+    init_quote_tables(cursor)
 
     conn.commit()
     conn.close()
 
-    print("旅游产品、咨询、任务、资源和订单数据库初始化完成")
+    print("旅游产品、咨询、任务、资源、订单和报价数据库初始化完成")
 
 
 if __name__ == "__main__":
