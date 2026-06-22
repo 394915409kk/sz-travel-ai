@@ -620,6 +620,44 @@ def init_sales_conversion_tables(cursor):
     """)
 
 
+def init_content_marketing_tables(cursor):
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS content_campaigns (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        campaign_name TEXT NOT NULL,
+        destination TEXT NOT NULL,
+        product_theme TEXT NOT NULL,
+        target_audience TEXT NOT NULL,
+        platform TEXT NOT NULL
+            CHECK (platform IN ('xiaohongshu', 'douyin', 'video_account', 'wechat', 'website')),
+        content_type TEXT NOT NULL
+            CHECK (content_type IN ('note', 'short_video_script', 'poster_copy', 'itinerary_post', 'promotion_post')),
+        title TEXT NOT NULL,
+        body TEXT NOT NULL,
+        hashtags_json TEXT NOT NULL DEFAULT '[]',
+        call_to_action TEXT NOT NULL,
+        related_product_id INTEGER,
+        related_resource_ids_json TEXT NOT NULL DEFAULT '[]',
+        estimated_margin REAL NOT NULL DEFAULT 0,
+        priority_score REAL NOT NULL DEFAULT 0 CHECK (priority_score >= 0 AND priority_score <= 100),
+        status TEXT NOT NULL DEFAULT 'draft'
+            CHECK (status IN ('draft', 'ready', 'published', 'archived')),
+        published_at TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+        FOREIGN KEY (related_product_id) REFERENCES travel_products(id)
+    )
+    """)
+    cursor.execute("""
+    CREATE INDEX IF NOT EXISTS idx_content_campaigns_calendar
+    ON content_campaigns (status, created_at, platform, destination)
+    """)
+    cursor.execute("""
+    CREATE INDEX IF NOT EXISTS idx_content_campaigns_priority
+    ON content_campaigns (priority_score, estimated_margin)
+    """)
+
+
 def init_database():
     conn = get_connection()
     cursor = conn.cursor()
@@ -631,6 +669,7 @@ def init_database():
     init_order_tables(cursor)
     init_quote_tables(cursor)
     init_sales_conversion_tables(cursor)
+    init_content_marketing_tables(cursor)
 
     conn.commit()
     conn.close()

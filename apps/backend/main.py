@@ -12,6 +12,7 @@ from apps.backend.api.profit import router as profit_router
 from apps.backend.api.quote import router as quote_router
 from apps.backend.api.ceo_agent import router as ceo_agent_router
 from apps.backend.api.sales_conversion import router as sales_conversion_router
+from apps.backend.api.content_marketing import router as content_marketing_router
 from apps.backend.init_db import init_database
 
 
@@ -46,3 +47,4 @@ app.include_router(profit_router)
 app.include_router(ceo_agent_router)
 app.include_router(quote_router)
 app.include_router(sales_conversion_router)
+app.include_router(content_marketing_router)
