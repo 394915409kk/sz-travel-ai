@@ -772,6 +772,49 @@ def init_supply_chain_tables(cursor):
     """)
 
 
+def init_finance_control_tables(cursor):
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS finance_records (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        order_id INTEGER NOT NULL,
+        record_type TEXT NOT NULL
+            CHECK (record_type IN ('receivable', 'payable', 'refund', 'supplier_cost', 'insurance_income', 'adjustment')),
+        amount REAL NOT NULL CHECK (amount >= 0),
+        direction TEXT NOT NULL CHECK (direction IN ('income', 'expense')),
+        counterparty TEXT NOT NULL,
+        due_date TEXT,
+        paid_at TEXT,
+        status TEXT NOT NULL DEFAULT 'pending'
+            CHECK (status IN ('pending', 'paid', 'overdue', 'cancelled', 'disputed')),
+        risk_flags_json TEXT NOT NULL DEFAULT '[]',
+        note TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+        FOREIGN KEY (order_id) REFERENCES orders(id),
+        UNIQUE (order_id, record_type, counterparty)
+    )
+    """)
+    cursor.execute("""
+    CREATE INDEX IF NOT EXISTS idx_finance_records_reconciliation
+    ON finance_records (status, direction, record_type, due_date, order_id)
+    """)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS reconciliation_reports (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        report_date TEXT NOT NULL UNIQUE,
+        total_receivable REAL NOT NULL DEFAULT 0,
+        total_received REAL NOT NULL DEFAULT 0,
+        total_payable REAL NOT NULL DEFAULT 0,
+        total_paid REAL NOT NULL DEFAULT 0,
+        gross_profit REAL NOT NULL DEFAULT 0,
+        risk_amount REAL NOT NULL DEFAULT 0,
+        risk_flags_json TEXT NOT NULL DEFAULT '[]',
+        recommendation_text TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+    )
+    """)
+
+
 def init_database():
     conn = get_connection()
     cursor = conn.cursor()
@@ -786,6 +829,7 @@ def init_database():
     init_content_marketing_tables(cursor)
     init_customer_lifecycle_tables(cursor)
     init_supply_chain_tables(cursor)
+    init_finance_control_tables(cursor)
 
     conn.commit()
     conn.close()

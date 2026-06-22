@@ -30,6 +30,7 @@ apps/backend/api/sales_conversion.py 销售成交自动化中心接口
 apps/backend/api/content_marketing.py 内容营销中心接口
 apps/backend/api/customer_lifecycle.py 客户生命周期与复购接口
 apps/backend/api/supply_chain.py      供应链与采购优化接口
+apps/backend/api/finance_control.py   内部财务对账与风控接口
 apps/backend/services/agent_team.py  多智能体策略分析服务
 apps/backend/services/recommendation_scoring.py  产品推荐规则评分服务
 apps/backend/services/inventory_service.py  库存一致性服务
@@ -44,6 +45,7 @@ apps/backend/services/sales_conversion_service.py  成交评分与话术服务
 apps/backend/services/content_marketing_service.py  规则化内容生成服务
 apps/backend/services/customer_lifecycle_service.py 客户画像与复购服务
 apps/backend/services/supply_chain_service.py 供应商表现与采购建议服务
+apps/backend/services/finance_control_service.py 内部对账与风险服务
 tests/                               自动化测试
 ```
 
@@ -193,6 +195,12 @@ http://127.0.0.1:8000/docs
 | PATCH | `/supply-chain/procurement-suggestions/{suggestion_id}/status` | 更新采购建议状态 |
 | GET | `/supply-chain/stockout-risks` | 查询缺货风险 |
 | GET | `/supply-chain/slow-moving-resources` | 查询无销售/预留的在库资源 |
+| POST | `/finance-control/records/generate` | 根据订单幂等生成内部应收与供应商成本记录 |
+| GET | `/finance-control/records` | 查询应收、应付和内部账务记录 |
+| PATCH | `/finance-control/records/{record_id}/status` | 更新财务记录状态 |
+| GET | `/finance-control/reconciliation-report` | 生成并保存内部对账报告 |
+| GET | `/finance-control/overdue` | 查询逾期记录 |
+| GET | `/finance-control/risk-alerts` | 查询财务对账风险 |
 | POST | `/products/{product_id}/ai-collaborative-strategy` | 基于真实产品数据生成多智能体营销策略 |
 
 ## 推荐评分规则
@@ -301,6 +309,12 @@ http://127.0.0.1:8000/docs
 `supplier_performance` 按供应商、资源类型和目的地汇总资源数、关联订单、销售额、成本、利润、毛利率、缺货和取消表现；`procurement_suggestions` 保存补货、减量、议价、替换或持续观察建议。缺货按 `stock - sold - reserved <= 0` 判断，滞销 MVP 按有库存但尚无已售和预留判断。收入、成本、利润与毛利率均可追溯到订单明细和当前资源成本，收入为零时毛利率返回 0。
 
 本模块不会自动采购、调库存、改供应商价格或发送外部指令；建议状态只用于内部工作流。滞销规则未包含真实采购批次与保质期，正式决策需人工复核未来团期和合同。生产化建议包括资源采购批次、释放期、供应商 SLA、取消责任、历史成本快照和审批审计。
+
+## Phase 5：财务对账与经营风控中心
+
+`finance_records` 按订单幂等生成客户应收和分供应商资源成本，金额禁止为负；`reconciliation_reports` 按日期保存应收、实收、应付、实付、内部毛利和风险金额。相同订单、记录类型和对手方不会重复生成；订单后续完成 Mock 支付时，再次同步会把既有应收更新为已付而不新增记录。到期日早于当前日期的 pending 记录自动标记 `overdue` 与 `FINANCE_RECONCILIATION_RISK`；收入为零时仍不会发生除零。内部毛利口径为生成账务记录的应收减应付，正式财务利润仍应以会计确认口径为准。
+
+本模块不连接真实支付、银行、税务、发票或供应商结算系统，`paid` 仅为内部人工状态；自动生成的供应商成本读取当前资源成本，尚不是不可变会计凭证。生产化建议包括订单成本快照、凭证编号、双人复核、科目映射、会计期间锁定、退款冲销而非覆盖，以及银行/税务接入前的权限和审计设计。
 
 ## 示例请求
 
