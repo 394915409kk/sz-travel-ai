@@ -576,6 +576,245 @@ def init_quote_tables(cursor):
     """)
 
 
+def init_sales_conversion_tables(cursor):
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS sales_conversion_records (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        inquiry_id INTEGER,
+        quote_id INTEGER NOT NULL,
+        customer_name TEXT NOT NULL,
+        phone TEXT,
+        destination TEXT NOT NULL,
+        budget REAL CHECK (budget IS NULL OR budget >= 0),
+        final_price REAL NOT NULL CHECK (final_price >= 0),
+        conversion_probability REAL NOT NULL
+            CHECK (conversion_probability >= 0 AND conversion_probability <= 1),
+        conversion_stage TEXT NOT NULL DEFAULT 'new'
+            CHECK (
+                conversion_stage IN (
+                    'new', 'quoted', 'negotiating', 'high_intent',
+                    'low_intent', 'accepted', 'lost', 'converted'
+                )
+            ),
+        customer_objections_json TEXT NOT NULL DEFAULT '[]',
+        recommended_actions_json TEXT NOT NULL DEFAULT '[]',
+        follow_up_script TEXT NOT NULL,
+        risk_flags_json TEXT NOT NULL DEFAULT '[]',
+        next_best_action TEXT NOT NULL,
+        assigned_sales TEXT NOT NULL DEFAULT '未分配',
+        created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+        FOREIGN KEY (inquiry_id) REFERENCES inquiries(id),
+        FOREIGN KEY (quote_id) REFERENCES quotes(id)
+    )
+    """)
+    cursor.execute("""
+    CREATE INDEX IF NOT EXISTS idx_sales_conversion_priority
+    ON sales_conversion_records (
+        conversion_stage, conversion_probability, updated_at
+    )
+    """)
+    cursor.execute("""
+    CREATE INDEX IF NOT EXISTS idx_sales_conversion_quote
+    ON sales_conversion_records (quote_id, inquiry_id)
+    """)
+
+
+def init_content_marketing_tables(cursor):
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS content_campaigns (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        campaign_name TEXT NOT NULL,
+        destination TEXT NOT NULL,
+        product_theme TEXT NOT NULL,
+        target_audience TEXT NOT NULL,
+        platform TEXT NOT NULL
+            CHECK (platform IN ('xiaohongshu', 'douyin', 'video_account', 'wechat', 'website')),
+        content_type TEXT NOT NULL
+            CHECK (content_type IN ('note', 'short_video_script', 'poster_copy', 'itinerary_post', 'promotion_post')),
+        title TEXT NOT NULL,
+        body TEXT NOT NULL,
+        hashtags_json TEXT NOT NULL DEFAULT '[]',
+        call_to_action TEXT NOT NULL,
+        related_product_id INTEGER,
+        related_resource_ids_json TEXT NOT NULL DEFAULT '[]',
+        estimated_margin REAL NOT NULL DEFAULT 0,
+        priority_score REAL NOT NULL DEFAULT 0 CHECK (priority_score >= 0 AND priority_score <= 100),
+        status TEXT NOT NULL DEFAULT 'draft'
+            CHECK (status IN ('draft', 'ready', 'published', 'archived')),
+        published_at TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+        FOREIGN KEY (related_product_id) REFERENCES travel_products(id)
+    )
+    """)
+    cursor.execute("""
+    CREATE INDEX IF NOT EXISTS idx_content_campaigns_calendar
+    ON content_campaigns (status, created_at, platform, destination)
+    """)
+    cursor.execute("""
+    CREATE INDEX IF NOT EXISTS idx_content_campaigns_priority
+    ON content_campaigns (priority_score, estimated_margin)
+    """)
+
+
+def init_customer_lifecycle_tables(cursor):
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS customer_profiles (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        customer_name TEXT NOT NULL,
+        phone TEXT,
+        customer_level TEXT NOT NULL DEFAULT 'regular'
+            CHECK (customer_level IN ('regular', 'high_value')),
+        total_orders INTEGER NOT NULL DEFAULT 0 CHECK (total_orders >= 0),
+        total_spent REAL NOT NULL DEFAULT 0 CHECK (total_spent >= 0),
+        total_profit REAL NOT NULL DEFAULT 0,
+        preferred_destinations_json TEXT NOT NULL DEFAULT '[]',
+        preferred_budget_range TEXT,
+        last_order_at TEXT,
+        next_repurchase_date TEXT,
+        repurchase_probability REAL NOT NULL DEFAULT 0
+            CHECK (repurchase_probability >= 0 AND repurchase_probability <= 1),
+        lifecycle_stage TEXT NOT NULL DEFAULT 'new'
+            CHECK (lifecycle_stage IN ('new', 'active', 'high_value', 'dormant', 'lost')),
+        risk_flags_json TEXT NOT NULL DEFAULT '[]',
+        recommendation_text TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+    )
+    """)
+    cursor.execute("""
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_customer_profiles_identity
+    ON customer_profiles (customer_name, COALESCE(phone, ''))
+    """)
+    cursor.execute("""
+    CREATE INDEX IF NOT EXISTS idx_customer_profiles_value
+    ON customer_profiles (customer_level, lifecycle_stage, repurchase_probability)
+    """)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS repurchase_tasks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        customer_profile_id INTEGER NOT NULL,
+        customer_name TEXT NOT NULL,
+        phone TEXT,
+        recommended_destination TEXT,
+        recommended_product_id INTEGER,
+        reason TEXT NOT NULL,
+        priority TEXT NOT NULL DEFAULT 'medium'
+            CHECK (priority IN ('high', 'medium', 'low')),
+        due_date TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending'
+            CHECK (status IN ('pending', 'completed', 'cancelled')),
+        assigned_sales TEXT NOT NULL DEFAULT '未分配',
+        created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+        completed_at TEXT,
+        FOREIGN KEY (customer_profile_id) REFERENCES customer_profiles(id),
+        FOREIGN KEY (recommended_product_id) REFERENCES travel_products(id)
+    )
+    """)
+    cursor.execute("""
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_repurchase_tasks_active_profile
+    ON repurchase_tasks (customer_profile_id)
+    WHERE status = 'pending'
+    """)
+
+
+def init_supply_chain_tables(cursor):
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS supplier_performance (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        supplier_name TEXT NOT NULL,
+        resource_type TEXT NOT NULL,
+        destination TEXT NOT NULL,
+        total_resources INTEGER NOT NULL DEFAULT 0 CHECK (total_resources >= 0),
+        total_orders INTEGER NOT NULL DEFAULT 0 CHECK (total_orders >= 0),
+        total_revenue REAL NOT NULL DEFAULT 0,
+        total_cost REAL NOT NULL DEFAULT 0,
+        total_profit REAL NOT NULL DEFAULT 0,
+        average_margin REAL NOT NULL DEFAULT 0,
+        stockout_count INTEGER NOT NULL DEFAULT 0 CHECK (stockout_count >= 0),
+        cancellation_count INTEGER NOT NULL DEFAULT 0 CHECK (cancellation_count >= 0),
+        performance_score REAL NOT NULL DEFAULT 0
+            CHECK (performance_score >= 0 AND performance_score <= 100),
+        risk_flags_json TEXT NOT NULL DEFAULT '[]',
+        recommendation_text TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+        UNIQUE (supplier_name, resource_type, destination)
+    )
+    """)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS procurement_suggestions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        supplier_name TEXT NOT NULL,
+        resource_type TEXT NOT NULL,
+        destination TEXT NOT NULL,
+        suggested_action TEXT NOT NULL
+            CHECK (suggested_action IN ('increase_stock', 'reduce_stock', 'renegotiate_price', 'replace_supplier', 'keep_monitoring')),
+        suggested_quantity INTEGER NOT NULL DEFAULT 0 CHECK (suggested_quantity >= 0),
+        reason TEXT NOT NULL,
+        priority TEXT NOT NULL DEFAULT 'medium'
+            CHECK (priority IN ('high', 'medium', 'low')),
+        status TEXT NOT NULL DEFAULT 'pending'
+            CHECK (status IN ('pending', 'accepted', 'completed', 'dismissed')),
+        created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+    )
+    """)
+    cursor.execute("""
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_procurement_suggestions_active
+    ON procurement_suggestions (supplier_name, resource_type, destination, suggested_action)
+    WHERE status IN ('pending', 'accepted')
+    """)
+    cursor.execute("""
+    CREATE INDEX IF NOT EXISTS idx_supplier_performance_risk
+    ON supplier_performance (performance_score, stockout_count, cancellation_count)
+    """)
+
+
+def init_finance_control_tables(cursor):
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS finance_records (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        order_id INTEGER NOT NULL,
+        record_type TEXT NOT NULL
+            CHECK (record_type IN ('receivable', 'payable', 'refund', 'supplier_cost', 'insurance_income', 'adjustment')),
+        amount REAL NOT NULL CHECK (amount >= 0),
+        direction TEXT NOT NULL CHECK (direction IN ('income', 'expense')),
+        counterparty TEXT NOT NULL,
+        due_date TEXT,
+        paid_at TEXT,
+        status TEXT NOT NULL DEFAULT 'pending'
+            CHECK (status IN ('pending', 'paid', 'overdue', 'cancelled', 'disputed')),
+        risk_flags_json TEXT NOT NULL DEFAULT '[]',
+        note TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+        FOREIGN KEY (order_id) REFERENCES orders(id),
+        UNIQUE (order_id, record_type, counterparty)
+    )
+    """)
+    cursor.execute("""
+    CREATE INDEX IF NOT EXISTS idx_finance_records_reconciliation
+    ON finance_records (status, direction, record_type, due_date, order_id)
+    """)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS reconciliation_reports (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        report_date TEXT NOT NULL UNIQUE,
+        total_receivable REAL NOT NULL DEFAULT 0,
+        total_received REAL NOT NULL DEFAULT 0,
+        total_payable REAL NOT NULL DEFAULT 0,
+        total_paid REAL NOT NULL DEFAULT 0,
+        gross_profit REAL NOT NULL DEFAULT 0,
+        risk_amount REAL NOT NULL DEFAULT 0,
+        risk_flags_json TEXT NOT NULL DEFAULT '[]',
+        recommendation_text TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+    )
+    """)
+
+
 def init_database():
     conn = get_connection()
     cursor = conn.cursor()
@@ -586,11 +825,16 @@ def init_database():
     init_travel_resource_tables(cursor)
     init_order_tables(cursor)
     init_quote_tables(cursor)
+    init_sales_conversion_tables(cursor)
+    init_content_marketing_tables(cursor)
+    init_customer_lifecycle_tables(cursor)
+    init_supply_chain_tables(cursor)
+    init_finance_control_tables(cursor)
 
     conn.commit()
     conn.close()
 
-    print("旅游产品、咨询、任务、资源、订单和报价数据库初始化完成")
+    print("旅游产品、咨询、任务、资源、订单、报价、销售成交和内容营销数据库初始化完成")
 
 
 if __name__ == "__main__":

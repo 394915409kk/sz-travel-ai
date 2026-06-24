@@ -8,6 +8,8 @@
 
 客户提出需求 -> 系统保存咨询 -> 系统匹配产品/资源 -> 自动报价与动态定价 -> 销售确认 -> 报价转订单 -> 资源履约。
 
+当前升级分支正在扩展为 **AI Travel Autonomous Revenue OS**。Phase 1 已加入销售成交自动化中心，把报价、CRM 优先级、跟进任务、预算差距、出发临近度和毛利风险组合成可解释的成交概率、风险标记、跟进话术与下一步动作。
+
 ## 代码结构
 
 ```text
@@ -24,6 +26,13 @@ apps/backend/api/order.py            订单交易与履约中心接口
 apps/backend/api/profit.py           订单利润中心接口
 apps/backend/api/ceo_agent.py        CEO Agent 经营分析接口
 apps/backend/api/quote.py            自动报价与动态定价中心接口
+apps/backend/api/sales_conversion.py 销售成交自动化中心接口
+apps/backend/api/content_marketing.py 内容营销中心接口
+apps/backend/api/customer_lifecycle.py 客户生命周期与复购接口
+apps/backend/api/supply_chain.py      供应链与采购优化接口
+apps/backend/api/finance_control.py   内部财务对账与风控接口
+apps/backend/api/dashboard.py         管理驾驶舱接口
+apps/backend/api/system_health.py     系统健康与就绪检查接口
 apps/backend/services/agent_team.py  多智能体策略分析服务
 apps/backend/services/recommendation_scoring.py  产品推荐规则评分服务
 apps/backend/services/inventory_service.py  库存一致性服务
@@ -34,6 +43,13 @@ apps/backend/services/ceo_agent_service.py  规则化经营分析服务
 apps/backend/services/pricing_service.py  规则化动态定价服务
 apps/backend/services/quote_service.py  报价生成、查询与状态服务
 apps/backend/services/quote_to_order_service.py  报价转订单事务服务
+apps/backend/services/sales_conversion_service.py  成交评分与话术服务
+apps/backend/services/content_marketing_service.py  规则化内容生成服务
+apps/backend/services/customer_lifecycle_service.py 客户画像与复购服务
+apps/backend/services/supply_chain_service.py 供应商表现与采购建议服务
+apps/backend/services/finance_control_service.py 内部对账与风险服务
+apps/backend/services/dashboard_service.py 跨模块经营汇总服务
+apps/backend/services/system_health_service.py 结构与一致性自检服务
 tests/                               自动化测试
 ```
 
@@ -155,6 +171,51 @@ http://127.0.0.1:8000/docs
 | GET | `/ceo-agent/daily-report` | 生成规则化 CEO 每日经营日报 |
 | GET | `/ceo-agent/risk-alerts` | 生成订单利润与经营集中度风险预警 |
 | GET | `/ceo-agent/recommendations` | 生成规则化经营建议 |
+| POST | `/sales-conversion/analyze` | 根据报价生成成交概率、风险与跟进建议 |
+| GET | `/sales-conversion` | 查询成交分析记录 |
+| GET | `/sales-conversion/high-intent` | 查询高意向成交机会 |
+| GET | `/sales-conversion/risk` | 查询成交风险记录 |
+| GET | `/sales-conversion/{record_id}` | 查询成交分析详情 |
+| PATCH | `/sales-conversion/{record_id}/stage` | 更新成交阶段 |
+| GET | `/sales-conversion/{record_id}/follow-up-script` | 获取规则化跟进话术 |
+| POST | `/content-marketing/generate` | 按平台和内容类型生成规则化营销内容 |
+| GET | `/content-marketing` | 查询内容营销任务 |
+| GET | `/content-marketing/high-margin-topics` | 查询高毛利内容主题 |
+| GET | `/content-marketing/calendar` | 查询内容任务日历 |
+| GET | `/content-marketing/{campaign_id}` | 查询内容详情 |
+| PATCH | `/content-marketing/{campaign_id}/status` | 更新草稿、就绪、发布或归档状态 |
+| POST | `/customer-lifecycle/profiles/generate` | 从历史订单重算客户画像 |
+| GET | `/customer-lifecycle/profiles` | 查询客户画像 |
+| GET | `/customer-lifecycle/profiles/{profile_id}` | 查询单个客户画像 |
+| GET | `/customer-lifecycle/high-value-customers` | 查询高价值客户 |
+| GET | `/customer-lifecycle/dormant-customers` | 查询沉睡客户 |
+| POST | `/customer-lifecycle/repurchase-tasks/generate` | 生成去重的复购任务 |
+| GET | `/customer-lifecycle/repurchase-tasks` | 查询复购任务 |
+| PATCH | `/customer-lifecycle/repurchase-tasks/{task_id}/status` | 更新复购任务状态 |
+| POST | `/supply-chain/analyze` | 重算供应商表现并生成采购建议 |
+| GET | `/supply-chain/suppliers` | 查询供应商表现 |
+| GET | `/supply-chain/suppliers/{supplier_name}` | 查询指定供应商表现 |
+| GET | `/supply-chain/procurement-suggestions` | 查询采购建议 |
+| PATCH | `/supply-chain/procurement-suggestions/{suggestion_id}/status` | 更新采购建议状态 |
+| GET | `/supply-chain/stockout-risks` | 查询缺货风险 |
+| GET | `/supply-chain/slow-moving-resources` | 查询无销售/预留的在库资源 |
+| POST | `/finance-control/records/generate` | 根据订单幂等生成内部应收与供应商成本记录 |
+| GET | `/finance-control/records` | 查询应收、应付和内部账务记录 |
+| PATCH | `/finance-control/records/{record_id}/status` | 更新财务记录状态 |
+| GET | `/finance-control/reconciliation-report` | 生成并保存内部对账报告 |
+| GET | `/finance-control/overdue` | 查询逾期记录 |
+| GET | `/finance-control/risk-alerts` | 查询财务对账风险 |
+| GET | `/dashboard/overview` | 查询老板经营总览 |
+| GET | `/dashboard/today` | 查询今日线索、报价、订单、销售额和毛利 |
+| GET | `/dashboard/sales` | 查询销售待办与成交阶段 |
+| GET | `/dashboard/profit` | 查询利润汇总与风险订单 |
+| GET | `/dashboard/risks` | 查询跨模块风险摘要 |
+| GET | `/dashboard/actions` | 查询规则化经营行动建议 |
+| GET | `/system-health` | 查询数据库、模块、风险和就绪总状态 |
+| GET | `/system-health/database` | 检查数据库可访问性和关键表 |
+| GET | `/system-health/modules` | 检查核心 API 模块导入与注册 |
+| GET | `/system-health/risks` | 检查库存、订单、报价、财务与测试覆盖风险 |
+| GET | `/system-health/readiness` | 判断是否满足 MVP 长期运行就绪条件 |
 | POST | `/products/{product_id}/ai-collaborative-strategy` | 基于真实产品数据生成多智能体营销策略 |
 
 ## 推荐评分规则
@@ -239,6 +300,52 @@ http://127.0.0.1:8000/docs
 报价生成只读取资源库存，不预留或扣减库存。只有 `proposed` 或 `accepted` 报价可以转订单；`rejected`、`expired` 和已转订单报价不能转换。转订单在单个 SQLite `BEGIN IMMEDIATE` 事务中创建订单，并逐项调用 `InventoryConsistencyService.lock_stock()` 锁定库存；任一资源库存不足时，订单、库存和报价状态整体回滚。同一报价只能转换一次，成功后状态更新为 `converted_to_order`，订单金额固定使用报价 `final_price`。
 
 本阶段不包含真实 AI 模型调用、前端页面、真实 OTA、真实航司/酒店接口、真实财务系统、税务、发票、银行系统和外部 API。动态定价全部由本地可审计规则完成，正式对客前仍需销售人工复核资源、价格和库存。
+
+## Phase 1：销售成交自动化中心
+
+`sales_conversion_records` 保存报价对应的成交概率、成交阶段、客户异议、建议动作、跟进话术和风险标记。概率严格限制在 0 到 1；评分读取报价是否有效、预算差距、CRM 优先级、跟进状态、销售任务、出发日期和预计毛利率。低预算、临近出发、缺少联系方式或未安排跟进会产生可解释风险，不会修改报价、订单或库存。
+
+本模块只使用规则模板，不调用外部 AI、短信、微信或邮件；话术是销售工作底稿，正式发送和报价承诺必须人工复核。生产化建议包括引入经授权的沟通渠道、保留发送审计记录、校准成交模型，并对个人信息实施分级权限和脱敏。
+
+## Phase 2：内容营销中心
+
+`content_campaigns` 保存平台、内容类型、标题、正文、标签、行动引导、关联产品/资源、预计毛利、优先级与发布状态。内容优先级由历史咨询量、报价毛利率、当前可用库存比例、30 天出发窗口、高利润订单和当日经营风险共同组成；高毛利主题读取本地报价与订单利润，不伪造平台热度。小红书笔记、短视频脚本、海报、行程和促销文案均由可审计模板生成。
+
+本模块不连接小红书、抖音、视频号、微信或网站，也不自动发布或抓取外部热点；`published` 仅代表内部状态。所有价格、库存、出入境政策与营销承诺发布前必须人工核验。生产化建议包括接入经授权的平台发布审批、效果回传和线索归因，并将外部趋势数据标注来源与采集时间。
+
+## Phase 3：私域复购与客户生命周期中心
+
+`customer_profiles` 按客户姓名与电话聚合历史订单，保存订单数、消费额、实时利润汇总、偏好目的地、历史金额区间、最近订单、建议复购日期、复购概率和生命周期风险；`repurchase_tasks` 保存去重的销售复购待办。高价值规则为订单数不少于 3、累计消费不少于 10000 元或累计毛利不少于 3000 元；超过 180 天未下单标记沉睡风险。所有概率均限制在 0 到 1，订单收入为零时不做除零。
+
+本模块不自动联系客户、不调用微信/短信/邮件、不基于敏感信息做外部画像；推荐只是内部销售线索，需人工确认客户授权、预算和新需求。生产化建议包括客户身份去重、隐私授权与删除机制、节假日日历、销售归属继承和活动效果回传。
+
+## Phase 4：供应链与采购优化中心
+
+`supplier_performance` 按供应商、资源类型和目的地汇总资源数、关联订单、销售额、成本、利润、毛利率、缺货和取消表现；`procurement_suggestions` 保存补货、减量、议价、替换或持续观察建议。缺货按 `stock - sold - reserved <= 0` 判断，滞销 MVP 按有库存但尚无已售和预留判断。收入、成本、利润与毛利率均可追溯到订单明细和当前资源成本，收入为零时毛利率返回 0。
+
+本模块不会自动采购、调库存、改供应商价格或发送外部指令；建议状态只用于内部工作流。滞销规则未包含真实采购批次与保质期，正式决策需人工复核未来团期和合同。生产化建议包括资源采购批次、释放期、供应商 SLA、取消责任、历史成本快照和审批审计。
+
+## Phase 5：财务对账与经营风控中心
+
+`finance_records` 按订单幂等生成客户应收和分供应商资源成本，金额禁止为负；`reconciliation_reports` 按日期保存应收、实收、应付、实付、内部毛利和风险金额。相同订单、记录类型和对手方不会重复生成；订单后续完成 Mock 支付时，再次同步会把既有应收更新为已付而不新增记录。到期日早于当前日期的 pending 记录自动标记 `overdue` 与 `FINANCE_RECONCILIATION_RISK`；收入为零时仍不会发生除零。内部毛利口径为生成账务记录的应收减应付，正式财务利润仍应以会计确认口径为准。
+
+本模块不连接真实支付、银行、税务、发票或供应商结算系统，`paid` 仅为内部人工状态；自动生成的供应商成本读取当前资源成本，尚不是不可变会计凭证。生产化建议包括订单成本快照、凭证编号、双人复核、科目映射、会计期间锁定、退款冲销而非覆盖，以及银行/税务接入前的权限和审计设计。
+
+## Phase 6：管理驾驶舱 Dashboard API
+
+驾驶舱不新增重复业务表，实时汇总今日/累计线索、报价、订单、销售额、订单毛利、毛利率、销售待办、高意向客户、风险订单、低毛利、库存、供应链、财务、内容和复购机会，并嵌入规则化 CEO Agent 摘要与行动建议。销售额口径为订单 `total_amount`，毛利口径沿用利润中心；收入为零时毛利率为 0，避免除零。
+
+驾驶舱是管理视图，不改变订单、库存、支付或财务状态，也不替代正式会计报表。数据为空时返回 0 和可执行的数据补充建议。生产化建议包括统一业务时区、指标口径版本、缓存与快照、权限分层、数据延迟标识和前端钻取审计。
+
+## Phase 7：系统健康检查与自动化运营中心
+
+健康中心执行 SQLite `quick_check`、21 张关键表检查、15 个核心 API 模块导入/注册检查，并识别负库存、在售缺货、报价已转换但无订单、已支付订单无法计算利润、逾期财务记录和核心测试文件缺失。`readiness` 只有在数据库/表、模块注册全部正常且无 critical 风险时才返回 `ready=true`；普通缺货等 warning 会保留提示但不误判为系统不可启动。
+
+健康检查只读核心订单、库存、支付与报价状态，不自动修复、不自动改价、不自动补库存。正式长期运行前建议增加外部监控、结构化日志、定时备份与恢复演练、告警通知审批、迁移版本表、生产数据库行级锁和多实例并发压测。
+
+## AI Travel Autonomous Revenue OS：MVP 边界
+
+本仓库现已形成“线索 → CRM → 推荐 → 资源/成本 → 报价/动态定价 → 成交推动 → 报价转订单 → 库存锁定 → Mock 支付/履约 → 利润/CEO → 内容获客 → 复购 → 供应链 → 内部财务对账 → 驾驶舱 → 健康检查”的后端闭环。所有新增智能能力均为本地可解释规则，不接真实支付、银行、税务、发票、短信、微信、邮件、OTA、航司、酒店或外部 AI API；涉及价格、库存、政策、对客内容、采购与财务状态时仍需人工复核。
 
 ## 示例请求
 
