@@ -1,9 +1,11 @@
 from importlib.util import find_spec
 from pathlib import Path
 
-from apps.backend.db import get_connection
+from apps.backend.db import get_connection, get_db_path
+from apps.backend.security import security_config_status
 from apps.backend.services.inventory_service import RESOURCE_TABLES
 from apps.backend.services.profit_service import ProfitService
+from scripts.backup_sqlite import resolve_backup_dir
 
 
 REQUIRED_TABLES = (
@@ -14,7 +16,7 @@ REQUIRED_TABLES = (
     "quotes", "quote_items", "sales_conversion_records",
     "content_campaigns", "customer_profiles", "repurchase_tasks",
     "supplier_performance", "procurement_suggestions", "finance_records",
-    "reconciliation_reports",
+    "reconciliation_reports", "operation_audit_logs",
 )
 
 MODULES = {
@@ -33,6 +35,7 @@ MODULES = {
     "finance_control": ("apps.backend.api.finance_control", "/finance-control"),
     "dashboard": ("apps.backend.api.dashboard", "/dashboard"),
     "system_health": ("apps.backend.api.system_health", "/system-health"),
+    "audit": ("apps.backend.api.audit", "/audit-logs"),
 }
 
 CORE_TEST_FILES = (
@@ -55,12 +58,16 @@ class SystemHealthService:
             cursor = conn.cursor()
             cursor.execute("PRAGMA quick_check")
             quick_check = cursor.fetchone()[0]
+            db_path = get_db_path()
             cursor.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
             existing = {row["name"] for row in cursor.fetchall()}
             missing = [table for table in REQUIRED_TABLES if table not in existing]
             conn.close()
             return {
                 "accessible": True, "quick_check": quick_check,
+                "db_path": str(db_path),
+                "readable": True,
+                "writable": db_path.exists() and db_path.stat().st_size >= 0,
                 "required_table_count": len(REQUIRED_TABLES),
                 "existing_required_table_count": len(REQUIRED_TABLES) - len(missing),
                 "missing_tables": missing,
@@ -104,6 +111,16 @@ class SystemHealthService:
         profit_service = ProfitService(conn)
         cursor.execute("SELECT id, order_no FROM orders WHERE payment_status = 'mock_paid'")
         for row in cursor.fetchall():
+            cursor.execute(
+                """
+                SELECT COUNT(*) AS count
+                FROM payment_events
+                WHERE order_id = ? AND event_status = 'processed'
+                """,
+                (row["id"],),
+            )
+            if cursor.fetchone()["count"] == 0:
+                risks.append(cls._risk("critical", "PAYMENT_LEDGER_RISK", f"已支付订单 {row['order_no']} 缺少已处理支付事件", {"order_id": row["id"]}))
             profit = profit_service.get_order_profit(row["id"])
             if profit is None:
                 risks.append(cls._risk("critical", "NEGATIVE_PROFIT_RISK", f"已支付订单 {row['order_no']} 无法计算利润", {"order_id": row["id"]}))
@@ -128,25 +145,90 @@ class SystemHealthService:
     def _risk(severity, risk_type, message, context):
         return {"severity": severity, "risk_type": risk_type, "message": message, "context": context, "risk_flag": "SYSTEM_HEALTH_RISK"}
 
+    @staticmethod
+    def security():
+        return security_config_status()
+
+    @staticmethod
+    def backup():
+        backup_dir = resolve_backup_dir()
+        try:
+            backup_dir.mkdir(parents=True, exist_ok=True)
+            writable_probe = backup_dir / ".write_check"
+            writable_probe.write_text("ok", encoding="utf-8")
+            writable_probe.unlink(missing_ok=True)
+            return {
+                "backup_directory": str(backup_dir),
+                "exists": True,
+                "writable": True,
+                "backup_directory_ok": True,
+                "healthy": True,
+            }
+        except Exception as exc:
+            return {
+                "backup_directory": str(backup_dir),
+                "exists": backup_dir.exists(),
+                "writable": False,
+                "backup_directory_ok": False,
+                "healthy": False,
+                "error": str(exc),
+            }
+
     @classmethod
     def readiness(cls, route_paths):
         database = cls.database()
         modules = cls.modules(route_paths)
         risks = cls.risks() if database.get("accessible") else {"count": 0, "critical_count": 1, "warning_count": 0, "risks": []}
-        ready = database.get("healthy", False) and modules["healthy"] and risks["critical_count"] == 0
+        security = cls.security()
+        backup = cls.backup()
+        database_ok = database.get("healthy", False)
+        required_tables_ok = not database.get("missing_tables")
+        module_registration_ok = modules["healthy"]
+        backup_directory_ok = backup["backup_directory_ok"]
+        security_config_ok = security["security_config_ok"]
+        ready = (
+            database_ok
+            and required_tables_ok
+            and module_registration_ok
+            and backup_directory_ok
+            and security_config_ok
+            and risks["critical_count"] == 0
+        )
+        recommendations = []
+        if not database_ok or not required_tables_ok:
+            recommendations.append("先修复数据库可访问性和关键表结构。")
+        if not module_registration_ok:
+            recommendations.append("检查 FastAPI 路由注册和模块导入。")
+        if not backup_directory_ok:
+            recommendations.append("修复 SQLite 备份目录权限。")
+        if not security_config_ok:
+            recommendations.extend(security["recommendations"])
+        if risks["critical_count"] > 0:
+            recommendations.append("先修复关键一致性风险，再进入内测。")
+        if not recommendations:
+            recommendations.append("系统通过内测就绪检查；警告项仍需运营人员持续复核。")
         return {
+            "app_env": security["app_env"],
+            "database_ok": database_ok,
+            "required_tables_ok": required_tables_ok,
+            "module_registration_ok": module_registration_ok,
+            "backup_directory_ok": backup_directory_ok,
+            "security_config_ok": security_config_ok,
+            "critical_risks_count": risks["critical_count"],
+            "warnings_count": risks["warning_count"],
             "ready": ready,
             "status": "ready" if ready else "not_ready",
             "checks": {
-                "database": database.get("healthy", False),
-                "modules": modules["healthy"],
+                "database": database_ok,
+                "required_tables": required_tables_ok,
+                "modules": module_registration_ok,
+                "backup_directory": backup_directory_ok,
+                "security_config": security_config_ok,
                 "no_critical_risks": risks["critical_count"] == 0,
             },
             "warning_count": risks["warning_count"],
-            "recommendation": (
-                "系统通过 MVP 就绪检查；警告项仍需运营人员持续复核。"
-                if ready else "先修复数据库、模块注册或关键一致性风险，再进入长期自动化运行。"
-            ),
+            "recommendations": recommendations,
+            "recommendation": recommendations[0],
         }
 
     @classmethod
@@ -155,4 +237,12 @@ class SystemHealthService:
         modules = cls.modules(route_paths)
         risks = cls.risks() if database.get("accessible") else {"count": 0, "critical_count": 1, "warning_count": 0, "risks": []}
         readiness = cls.readiness(route_paths)
-        return {"status": "ok" if readiness["ready"] else "degraded", "database": database, "modules": modules, "risks": risks, "readiness": readiness}
+        return {
+            "status": "ok" if readiness["ready"] else "degraded",
+            "database": database,
+            "modules": modules,
+            "security": cls.security(),
+            "backup": cls.backup(),
+            "risks": risks,
+            "readiness": readiness,
+        }

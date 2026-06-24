@@ -1,8 +1,9 @@
 from typing import Literal
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict, Field
 
+from apps.backend.security import require_internal_api_key
 from apps.backend.services.sales_conversion_service import SalesConversionService
 
 
@@ -27,7 +28,10 @@ class SalesConversionStageUpdate(StrictModel):
 
 
 @router.post("/analyze")
-def analyze_sales_conversion(request: SalesConversionAnalyze):
+def analyze_sales_conversion(
+    request: SalesConversionAnalyze,
+    _: None = Depends(require_internal_api_key),
+):
     return {"success": True, "record": SalesConversionService.analyze(request.quote_id, request.customer_objections)}
 
 
@@ -55,7 +59,11 @@ def get_sales_conversion(record_id: int):
 
 
 @router.patch("/{record_id}/stage")
-def update_sales_conversion_stage(record_id: int, request: SalesConversionStageUpdate):
+def update_sales_conversion_stage(
+    record_id: int,
+    request: SalesConversionStageUpdate,
+    _: None = Depends(require_internal_api_key),
+):
     return {"success": True, "record": SalesConversionService.update_stage(record_id, request.conversion_stage)}
 
 

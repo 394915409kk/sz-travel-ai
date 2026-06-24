@@ -18,6 +18,7 @@ from apps.backend.api.supply_chain import router as supply_chain_router
 from apps.backend.api.finance_control import router as finance_control_router
 from apps.backend.api.dashboard import router as dashboard_router
 from apps.backend.api.system_health import router as system_health_router
+from apps.backend.api.audit import router as audit_router
 from apps.backend.init_db import init_database
 
 
@@ -58,3 +59,4 @@ app.include_router(supply_chain_router)
 app.include_router(finance_control_router)
 app.include_router(dashboard_router)
 app.include_router(system_health_router)
+app.include_router(audit_router)

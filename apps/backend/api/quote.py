@@ -1,9 +1,12 @@
 from datetime import date
 from typing import Literal
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from apps.backend.security import require_internal_api_key
+from apps.backend.services.audit_service import AuditService, audit_context_from_request
+from apps.backend.services.privacy_service import PrivacyService
 from apps.backend.services.quote_service import QuoteService
 from apps.backend.services.quote_to_order_service import QuoteToOrderService
 
@@ -80,7 +83,10 @@ class QuoteStatusUpdate(StrictModel):
 
 
 @router.post("/quotes/generate")
-def generate_quote(request: QuoteGenerate):
+def generate_quote(
+    request: QuoteGenerate,
+    _: None = Depends(require_internal_api_key),
+):
     quote = QuoteService.generate(request.model_dump(mode="json"))
     return {"success": True, "quote": quote}
 
@@ -94,6 +100,7 @@ def get_quotes(
     date_to: date | None = None,
     min_margin: float | None = Query(default=None, ge=0, le=1),
     max_price: float | None = Query(default=None, ge=0),
+    mask_sensitive: bool = False,
 ):
     quotes = QuoteService.list_quotes(
         destination=destination,
@@ -104,23 +111,49 @@ def get_quotes(
         min_margin=min_margin,
         max_price=max_price,
     )
+    if mask_sensitive:
+        quotes = PrivacyService.mask_sensitive_dict(quotes)
     return {"success": True, "count": len(quotes), "quotes": quotes}
 
 
 @router.get("/quotes/{quote_id}")
-def get_quote(quote_id: int):
-    return {"success": True, "quote": QuoteService.get(quote_id)}
+def get_quote(quote_id: int, mask_sensitive: bool = False):
+    quote = QuoteService.get(quote_id)
+    if mask_sensitive:
+        quote = PrivacyService.mask_sensitive_dict(quote)
+    return {"success": True, "quote": quote}
 
 
 @router.patch("/quotes/{quote_id}/status")
-def update_quote_status(quote_id: int, request: QuoteStatusUpdate):
+def update_quote_status(
+    quote_id: int,
+    request: QuoteStatusUpdate,
+    _: None = Depends(require_internal_api_key),
+):
     quote = QuoteService.update_status(quote_id, request.quote_status)
     return {"success": True, "quote": quote}
 
 
 @router.post("/quotes/{quote_id}/convert-to-order")
-def convert_quote_to_order(quote_id: int):
+def convert_quote_to_order(
+    quote_id: int,
+    http_request: Request,
+    _: None = Depends(require_internal_api_key),
+):
     result = QuoteToOrderService.convert(quote_id)
+    context = audit_context_from_request(http_request)
+    AuditService.record_operation(
+        operation_type="convert_quote_to_order",
+        module_name="quotes",
+        resource_type="quote",
+        resource_id=quote_id,
+        actor=context["actor"],
+        request_id=context["request_id"],
+        detail={
+            "order_id": result["order"]["id"],
+            "quote_no": result["quote"]["quote_no"],
+        },
+    )
     return {"success": True, **result}
 
 

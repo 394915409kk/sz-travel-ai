@@ -1,10 +1,11 @@
 from datetime import datetime
 from typing import Literal
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from apps.backend.db import get_connection
+from apps.backend.security import require_internal_api_key
 
 router = APIRouter()
 
@@ -59,7 +60,7 @@ def fetch_task(cursor, task_id):
 
 
 @router.post("/follow-up-tasks/generate")
-def generate_follow_up_tasks():
+def generate_follow_up_tasks(_: None = Depends(require_internal_api_key)):
     conn = get_connection()
     cursor = conn.cursor()
 
@@ -234,6 +235,7 @@ def get_follow_up_task_detail(task_id: int):
 def update_follow_up_task_status(
     task_id: int,
     status_update: FollowUpTaskStatusUpdate,
+    _: None = Depends(require_internal_api_key),
 ):
     conn = get_connection()
     cursor = conn.cursor()

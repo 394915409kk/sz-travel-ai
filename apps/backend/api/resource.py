@@ -2,10 +2,11 @@ import json
 from datetime import date
 from typing import Literal
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from apps.backend.db import get_connection
+from apps.backend.security import require_internal_api_key
 
 router = APIRouter()
 
@@ -259,7 +260,10 @@ def list_resources(
 
 
 @router.post("/resources/transport")
-def create_transport_resource(resource: TransportResourceCreate):
+def create_transport_resource(
+    resource: TransportResourceCreate,
+    _: None = Depends(require_internal_api_key),
+):
     return create_resource(
         "travel_transport_resources",
         TRANSPORT_FIELDS,
@@ -289,7 +293,10 @@ def get_transport_resources(
 
 
 @router.post("/resources/hotel-rooms")
-def create_hotel_room_resource(resource: HotelRoomResourceCreate):
+def create_hotel_room_resource(
+    resource: HotelRoomResourceCreate,
+    _: None = Depends(require_internal_api_key),
+):
     return create_resource(
         "hotel_room_resources",
         HOTEL_ROOM_FIELDS,
@@ -321,7 +328,10 @@ def get_hotel_room_resources(
 
 
 @router.post("/resources/attraction-tickets")
-def create_attraction_ticket_resource(resource: AttractionTicketResourceCreate):
+def create_attraction_ticket_resource(
+    resource: AttractionTicketResourceCreate,
+    _: None = Depends(require_internal_api_key),
+):
     return create_resource(
         "attraction_ticket_resources",
         ATTRACTION_TICKET_FIELDS,
@@ -351,7 +361,10 @@ def get_attraction_ticket_resources(
 
 
 @router.post("/resources/restaurant-meals")
-def create_restaurant_meal_resource(resource: RestaurantMealResourceCreate):
+def create_restaurant_meal_resource(
+    resource: RestaurantMealResourceCreate,
+    _: None = Depends(require_internal_api_key),
+):
     return create_resource(
         "restaurant_meal_resources",
         RESTAURANT_MEAL_FIELDS,
@@ -381,7 +394,10 @@ def get_restaurant_meal_resources(
 
 
 @router.post("/resources/activities")
-def create_activity_resource(resource: ActivityResourceCreate):
+def create_activity_resource(
+    resource: ActivityResourceCreate,
+    _: None = Depends(require_internal_api_key),
+):
     return create_resource(
         "activity_resources",
         ACTIVITY_FIELDS,

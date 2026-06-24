@@ -1,8 +1,9 @@
 from typing import Literal
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict
 
+from apps.backend.security import require_internal_api_key
 from apps.backend.services.supply_chain_service import SupplyChainService
 
 
@@ -16,7 +17,7 @@ class SuggestionStatusUpdate(BaseModel):
 
 
 @router.post("/analyze")
-def analyze_supply_chain():
+def analyze_supply_chain(_: None = Depends(require_internal_api_key)):
     return {"success": True, **SupplyChainService.analyze()}
 
 
@@ -33,7 +34,11 @@ def procurement_suggestions(status: SuggestionStatus | None = None):
 
 
 @router.patch("/procurement-suggestions/{suggestion_id}/status")
-def update_procurement_suggestion(suggestion_id: int, request: SuggestionStatusUpdate):
+def update_procurement_suggestion(
+    suggestion_id: int,
+    request: SuggestionStatusUpdate,
+    _: None = Depends(require_internal_api_key),
+):
     return {"success": True, "suggestion": SupplyChainService.update_suggestion_status(suggestion_id, request.status)}
 
 

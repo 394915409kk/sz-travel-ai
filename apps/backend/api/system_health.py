@@ -33,3 +33,13 @@ def system_risks():
 @router.get("/readiness")
 def system_readiness(request: Request):
     return {"success": True, **SystemHealthService.readiness(_route_paths(request))}
+
+
+@router.get("/security")
+def system_security():
+    return {"success": True, **SystemHealthService.security()}
+
+
+@router.get("/backup")
+def system_backup():
+    return {"success": True, **SystemHealthService.backup()}

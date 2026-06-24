@@ -1,9 +1,11 @@
 from datetime import datetime
 from typing import Literal
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from apps.backend.db import get_connection
+from apps.backend.security import require_internal_api_key
+from apps.backend.services.privacy_service import PrivacyService
 
 router = APIRouter()
 
@@ -67,7 +69,10 @@ class InquiryCreate(BaseModel):
 
 
 @router.post("/inquiries")
-def create_inquiry(inquiry: InquiryCreate):
+def create_inquiry(
+    inquiry: InquiryCreate,
+    _: None = Depends(require_internal_api_key),
+):
     conn = get_connection()
     cursor = conn.cursor()
 
@@ -112,6 +117,7 @@ def get_inquiries(
     priority: Priority | None = None,
     source: str | None = None,
     next_follow_up_before: datetime | None = None,
+    mask_sensitive: bool = False,
 ):
     conn = get_connection()
     cursor = conn.cursor()
@@ -155,6 +161,8 @@ def get_inquiries(
     conn.close()
 
     inquiries = [serialize_inquiry(row) for row in rows]
+    if mask_sensitive:
+        inquiries = PrivacyService.mask_sensitive_dict(inquiries)
 
     return {
         "success": True,
@@ -190,7 +198,7 @@ def get_today_follow_up_inquiries():
 
 
 @router.get("/inquiries/{inquiry_id}")
-def get_inquiry_detail(inquiry_id: int):
+def get_inquiry_detail(inquiry_id: int, mask_sensitive: bool = False):
     conn = get_connection()
     cursor = conn.cursor()
 
@@ -206,9 +214,13 @@ def get_inquiry_detail(inquiry_id: int):
     if row is None:
         raise HTTPException(status_code=404, detail="未找到该客户咨询记录")
 
+    inquiry = serialize_inquiry(row)
+    if mask_sensitive:
+        inquiry = PrivacyService.mask_sensitive_dict(inquiry)
+
     return {
         "success": True,
-        "inquiry": serialize_inquiry(row)
+        "inquiry": inquiry
     }
 
 
@@ -217,7 +229,11 @@ class InquiryStatusUpdate(BaseModel):
 
 
 @router.patch("/inquiries/{inquiry_id}/status")
-def update_inquiry_status(inquiry_id: int, status_update: InquiryStatusUpdate):
+def update_inquiry_status(
+    inquiry_id: int,
+    status_update: InquiryStatusUpdate,
+    _: None = Depends(require_internal_api_key),
+):
     if status_update.follow_status not in ALLOWED_STATUSES:
         return {
             "success": False,
