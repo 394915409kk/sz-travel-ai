@@ -1,9 +1,10 @@
 from datetime import date
 from typing import Literal
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict, Field
 
+from apps.backend.security import require_internal_api_key
 from apps.backend.services.content_marketing_service import ContentMarketingService
 
 
@@ -33,7 +34,10 @@ class ContentStatusUpdate(StrictModel):
 
 
 @router.post("/generate")
-def generate_content(request: ContentGenerate):
+def generate_content(
+    request: ContentGenerate,
+    _: None = Depends(require_internal_api_key),
+):
     return {"success": True, "campaign": ContentMarketingService.generate(request.model_dump())}
 
 
@@ -61,5 +65,9 @@ def get_content(campaign_id: int):
 
 
 @router.patch("/{campaign_id}/status")
-def update_content_status(campaign_id: int, request: ContentStatusUpdate):
+def update_content_status(
+    campaign_id: int,
+    request: ContentStatusUpdate,
+    _: None = Depends(require_internal_api_key),
+):
     return {"success": True, "campaign": ContentMarketingService.update_status(campaign_id, request.status)}

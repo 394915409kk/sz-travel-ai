@@ -2,13 +2,16 @@ from datetime import datetime
 from typing import Literal
 from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from apps.backend.db import get_connection
+from apps.backend.security import require_internal_api_key
+from apps.backend.services.audit_service import AuditService, audit_context_from_request
 from apps.backend.services.inventory_service import InventoryConsistencyService
 from apps.backend.services.order_state_machine import OrderStateMachine
 from apps.backend.services.payment_guard import PaymentIdempotencyGuard
+from apps.backend.services.privacy_service import PrivacyService
 
 
 router = APIRouter()
@@ -175,7 +178,11 @@ def fetch_order_detail(conn, order_id):
 
 
 @router.post("/orders")
-def create_order(request: OrderCreate):
+def create_order(
+    request: OrderCreate,
+    http_request: Request,
+    _: None = Depends(require_internal_api_key),
+):
     conn = get_connection()
     cursor = conn.cursor()
     try:
@@ -295,6 +302,20 @@ def create_order(request: OrderCreate):
         conn.close()
         raise
     conn.close()
+    context = audit_context_from_request(http_request)
+    AuditService.record_operation(
+        operation_type="create_order",
+        module_name="orders",
+        resource_type="order",
+        resource_id=result["id"],
+        actor=context["actor"],
+        request_id=context["request_id"],
+        detail={
+            "order_no": result["order_no"],
+            "destination": result["destination"],
+            "item_count": len(result.get("items") or []),
+        },
+    )
     return {"success": True, "order": result}
 
 
@@ -304,6 +325,7 @@ def get_orders(
     payment_status: PaymentStatus | None = None,
     fulfillment_status: FulfillmentStatus | None = None,
     inquiry_id: int | None = Query(default=None, gt=0),
+    mask_sensitive: bool = False,
 ):
     sql = f"SELECT {ORDER_FIELDS} FROM orders"
     conditions = []
@@ -326,21 +348,29 @@ def get_orders(
     cursor.execute(sql, params)
     orders = [serialize_order(row) for row in cursor.fetchall()]
     conn.close()
+    if mask_sensitive:
+        orders = PrivacyService.mask_sensitive_dict(orders)
     return {"success": True, "count": len(orders), "orders": orders}
 
 
 @router.get("/orders/{order_id}")
-def get_order(order_id: int):
+def get_order(order_id: int, mask_sensitive: bool = False):
     conn = get_connection()
     order = fetch_order_detail(conn, order_id)
     conn.close()
     if order is None:
         raise HTTPException(status_code=404, detail="未找到该订单")
+    if mask_sensitive:
+        order = PrivacyService.mask_sensitive_dict(order)
     return {"success": True, "order": order}
 
 
 @router.patch("/orders/{order_id}/status")
-def update_order_status(order_id: int, request: OrderStatusUpdate):
+def update_order_status(
+    order_id: int,
+    request: OrderStatusUpdate,
+    _: None = Depends(require_internal_api_key),
+):
     conn = get_connection()
     cursor = conn.cursor()
     try:
@@ -370,7 +400,12 @@ def update_order_status(order_id: int, request: OrderStatusUpdate):
 
 
 @router.post("/orders/{order_id}/mock-payment")
-def mock_payment(order_id: int, request: MockPaymentRequest):
+def mock_payment(
+    order_id: int,
+    request: MockPaymentRequest,
+    http_request: Request,
+    _: None = Depends(require_internal_api_key),
+):
     conn = get_connection()
     cursor = conn.cursor()
     try:
@@ -383,6 +418,19 @@ def mock_payment(order_id: int, request: MockPaymentRequest):
         if processed_result is not None:
             conn.commit()
             conn.close()
+            context = audit_context_from_request(http_request)
+            AuditService.record_operation(
+                operation_type="mock_payment",
+                module_name="orders",
+                resource_type="order",
+                resource_id=order_id,
+                actor=context["actor"],
+                request_id=context["request_id"],
+                detail={
+                    "payment_event_id": request.payment_event_id,
+                    "idempotent_replay": True,
+                },
+            )
             return {**processed_result, "idempotent_replay": True}
 
         payment_guard.claim(request.payment_event_id, order_id)
@@ -399,6 +447,19 @@ def mock_payment(order_id: int, request: MockPaymentRequest):
             payment_guard.complete(request.payment_event_id, result)
             conn.commit()
             conn.close()
+            context = audit_context_from_request(http_request)
+            AuditService.record_operation(
+                operation_type="mock_payment",
+                module_name="orders",
+                resource_type="order",
+                resource_id=order_id,
+                actor=context["actor"],
+                request_id=context["request_id"],
+                detail={
+                    "payment_event_id": request.payment_event_id,
+                    "idempotent_replay": True,
+                },
+            )
             return {**result, "idempotent_replay": True}
         if order["payment_status"] != "unpaid":
             raise HTTPException(status_code=400, detail="当前支付状态不能模拟支付")
@@ -450,11 +511,28 @@ def mock_payment(order_id: int, request: MockPaymentRequest):
         conn.close()
         raise
     conn.close()
+    context = audit_context_from_request(http_request)
+    AuditService.record_operation(
+        operation_type="mock_payment",
+        module_name="orders",
+        resource_type="order",
+        resource_id=order_id,
+        actor=context["actor"],
+        request_id=context["request_id"],
+        detail={
+            "payment_event_id": request.payment_event_id,
+            "idempotent_replay": False,
+        },
+    )
     return {**result, "idempotent_replay": False}
 
 
 @router.post("/orders/{order_id}/documents")
-def create_order_document(order_id: int, request: OrderDocumentCreate):
+def create_order_document(
+    order_id: int,
+    request: OrderDocumentCreate,
+    _: None = Depends(require_internal_api_key),
+):
     conn = get_connection()
     cursor = conn.cursor()
     order = fetch_order(cursor, order_id)
@@ -507,7 +585,7 @@ def create_order_document(order_id: int, request: OrderDocumentCreate):
 
 
 @router.get("/orders/{order_id}/documents")
-def get_order_documents(order_id: int):
+def get_order_documents(order_id: int, mask_sensitive: bool = False):
     conn = get_connection()
     cursor = conn.cursor()
     if fetch_order(cursor, order_id) is None:
@@ -519,11 +597,16 @@ def get_order_documents(order_id: int):
     )
     documents = [dict(row) for row in cursor.fetchall()]
     conn.close()
+    if mask_sensitive:
+        documents = PrivacyService.mask_sensitive_dict(documents)
     return {"success": True, "count": len(documents), "documents": documents}
 
 
 @router.post("/insurance-products")
-def create_insurance_product(request: InsuranceProductCreate):
+def create_insurance_product(
+    request: InsuranceProductCreate,
+    _: None = Depends(require_internal_api_key),
+):
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute(
@@ -565,7 +648,11 @@ def get_insurance_products(status: InsuranceStatus | None = None):
 
 
 @router.post("/orders/{order_id}/insurances")
-def create_order_insurance(order_id: int, request: OrderInsuranceCreate):
+def create_order_insurance(
+    order_id: int,
+    request: OrderInsuranceCreate,
+    _: None = Depends(require_internal_api_key),
+):
     conn = get_connection()
     cursor = conn.cursor()
     try:
@@ -648,6 +735,7 @@ def get_order_insurances(order_id: int):
 def generate_contract(
     order_id: int,
     request: ContractGenerateRequest | None = None,
+    _: None = Depends(require_internal_api_key),
 ):
     conn = get_connection()
     cursor = conn.cursor()
@@ -699,7 +787,11 @@ def get_order_contracts(order_id: int):
 
 
 @router.post("/orders/{order_id}/contracts/{contract_id}/mock-sign")
-def mock_sign_contract(order_id: int, contract_id: int):
+def mock_sign_contract(
+    order_id: int,
+    contract_id: int,
+    _: None = Depends(require_internal_api_key),
+):
     conn = get_connection()
     cursor = conn.cursor()
     try:
@@ -746,7 +838,11 @@ def mock_sign_contract(order_id: int, contract_id: int):
 
 
 @router.post("/orders/{order_id}/reminders")
-def create_order_reminder(order_id: int, request: ReminderCreate):
+def create_order_reminder(
+    order_id: int,
+    request: ReminderCreate,
+    _: None = Depends(require_internal_api_key),
+):
     conn = get_connection()
     cursor = conn.cursor()
     if fetch_order(cursor, order_id) is None:
@@ -796,6 +892,7 @@ def update_order_reminder_status(
     order_id: int,
     reminder_id: int,
     request: ReminderStatusUpdate,
+    _: None = Depends(require_internal_api_key),
 ):
     conn = get_connection()
     cursor = conn.cursor()

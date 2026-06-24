@@ -815,6 +815,34 @@ def init_finance_control_tables(cursor):
     """)
 
 
+def init_audit_log_tables(cursor):
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS operation_audit_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        operation_type TEXT NOT NULL,
+        module_name TEXT NOT NULL,
+        resource_type TEXT,
+        resource_id TEXT,
+        actor TEXT NOT NULL DEFAULT 'internal-beta',
+        request_id TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'success'
+            CHECK (status IN ('success', 'failed', 'skipped')),
+        detail_json TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+    )
+    """)
+    cursor.execute("""
+    CREATE INDEX IF NOT EXISTS idx_operation_audit_logs_filters
+    ON operation_audit_logs (
+        module_name, operation_type, resource_type, actor, created_at
+    )
+    """)
+    cursor.execute("""
+    CREATE INDEX IF NOT EXISTS idx_operation_audit_logs_request
+    ON operation_audit_logs (request_id)
+    """)
+
+
 def init_database():
     conn = get_connection()
     cursor = conn.cursor()
@@ -830,11 +858,12 @@ def init_database():
     init_customer_lifecycle_tables(cursor)
     init_supply_chain_tables(cursor)
     init_finance_control_tables(cursor)
+    init_audit_log_tables(cursor)
 
     conn.commit()
     conn.close()
 
-    print("旅游产品、咨询、任务、资源、订单、报价、销售成交和内容营销数据库初始化完成")
+    print("旅游产品、咨询、任务、资源、订单、报价、销售成交、内容营销和审计日志数据库初始化完成")
 
 
 if __name__ == "__main__":

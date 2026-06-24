@@ -1,9 +1,11 @@
 from datetime import date
 from typing import Literal
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, ConfigDict, Field
 
+from apps.backend.security import require_internal_api_key
+from apps.backend.services.audit_service import AuditService, audit_context_from_request
 from apps.backend.services.finance_control_service import FinanceControlService
 
 
@@ -28,8 +30,26 @@ class FinanceStatusUpdate(StrictModel):
 
 
 @router.post("/records/generate")
-def generate_finance_records(request: FinanceGenerate):
+def generate_finance_records(
+    request: FinanceGenerate,
+    http_request: Request,
+    _: None = Depends(require_internal_api_key),
+):
     records = FinanceControlService.generate_records(request.order_id, request.receivable_due_days, request.payable_due_days)
+    context = audit_context_from_request(http_request)
+    AuditService.record_operation(
+        operation_type="generate_finance_records",
+        module_name="finance_control",
+        resource_type="order",
+        resource_id=request.order_id,
+        actor=context["actor"],
+        request_id=context["request_id"],
+        detail={
+            "generated_count": len(records),
+            "receivable_due_days": request.receivable_due_days,
+            "payable_due_days": request.payable_due_days,
+        },
+    )
     return {"success": True, "generated_count": len(records), "records": records}
 
 
@@ -40,8 +60,24 @@ def list_finance_records(record_type: RecordType | None = None, direction: Direc
 
 
 @router.patch("/records/{record_id}/status")
-def update_finance_record(record_id: int, request: FinanceStatusUpdate):
-    return {"success": True, "record": FinanceControlService.update_status(record_id, request.status)}
+def update_finance_record(
+    record_id: int,
+    request: FinanceStatusUpdate,
+    http_request: Request,
+    _: None = Depends(require_internal_api_key),
+):
+    record = FinanceControlService.update_status(record_id, request.status)
+    context = audit_context_from_request(http_request)
+    AuditService.record_operation(
+        operation_type="update_finance_record_status",
+        module_name="finance_control",
+        resource_type="finance_record",
+        resource_id=record_id,
+        actor=context["actor"],
+        request_id=context["request_id"],
+        detail={"status": request.status, "order_id": record["order_id"]},
+    )
+    return {"success": True, "record": record}
 
 
 @router.get("/reconciliation-report")

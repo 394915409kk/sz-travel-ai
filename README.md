@@ -112,6 +112,122 @@ docker compose up
 http://127.0.0.1:8000/docs
 ```
 
+## 生产化前稳定性强化 / Pre-production Stability Hardening
+
+当前系统阶段从 **AI Travel Autonomous Revenue OS MVP** 升级为 **AI Travel Autonomous Revenue OS Internal Beta Ready**。本阶段目标是支持受控网络下的内部小范围试运行，不是正式生产发布。
+
+### 内测级 API Key 鉴权
+
+关键写接口已接入内测级 API Key 保护，请通过环境变量配置：
+
+```bash
+APP_ENV=staging
+INTERNAL_API_KEY=replace-with-private-internal-key
+```
+
+写接口请求头：
+
+```text
+X-Internal-API-Key: replace-with-private-internal-key
+X-Internal-Actor: operator-name
+X-Request-Id: optional-request-id
+```
+
+规则：
+
+- `APP_ENV=development` 且 `INTERNAL_API_KEY` 为空时，允许本地开发免鉴权。
+- `APP_ENV=staging` 或 `APP_ENV=production` 时，关键写接口必须携带正确 API Key。
+- 只读 GET 接口暂不强制全部鉴权；内测环境建议在代理层保护全部接口和 Swagger。
+
+### 敏感信息脱敏
+
+系统新增统一脱敏服务，支持手机号、证件号、客户姓名脱敏。以下查询接口支持 `mask_sensitive=true`：
+
+- `GET /inquiries`
+- `GET /inquiries/{inquiry_id}`
+- `GET /orders`
+- `GET /orders/{order_id}`
+- `GET /orders/{order_id}/documents`
+- `GET /quotes`
+- `GET /quotes/{quote_id}`
+- `GET /customer-lifecycle/profiles`
+- `GET /customer-lifecycle/profiles/{profile_id}`
+
+示例：`13800000000` 会显示为 `138****0000`。
+
+### 操作审计日志
+
+新增 `operation_audit_logs` 表和 `GET /audit-logs` 查询接口。当前已记录：
+
+- 订单创建
+- Mock 支付
+- 报价转订单
+- 财务记录生成
+- 财务状态更新
+
+审计日志失败不会阻断主业务。actor 来自 `X-Internal-Actor`，request id 来自 `X-Request-Id`，未传时自动生成。
+
+### SQLite 备份与恢复
+
+新增本地脚本：
+
+```bash
+python scripts/backup_sqlite.py
+python scripts/restore_sqlite.py backups/travel_products-YYYYMMDD-HHMMSS.sqlite3
+```
+
+备份默认输出到 `backups/`，该目录已加入 `.gitignore`。恢复前会自动备份当前数据库。不接云备份或对象存储。
+
+### 部署准备
+
+新增/强化：
+
+- `.env.example`
+- `Dockerfile`
+- `docker-compose.yml`
+- `SQLITE_DB_PATH`
+- `SQLITE_BACKUP_DIR`
+- `INTERNAL_API_KEY`
+- `PORT`
+
+Docker 内测启动：
+
+```bash
+cp .env.example .env
+docker compose up --build
+```
+
+### 健康检查增强
+
+新增或增强：
+
+- `GET /system-health/readiness`
+- `GET /system-health/security`
+- `GET /system-health/backup`
+
+readiness 现在包含：
+
+- `app_env`
+- `database_ok`
+- `required_tables_ok`
+- `module_registration_ok`
+- `backup_directory_ok`
+- `security_config_ok`
+- `critical_risks_count`
+- `warnings_count`
+- `ready`
+- `recommendations`
+
+### 内测验收与运行文档
+
+- API 验收清单：[docs/API_ACCEPTANCE_CHECKLIST.md](docs/API_ACCEPTANCE_CHECKLIST.md)
+- 内测运行手册：[docs/INTERNAL_BETA_RUNBOOK.md](docs/INTERNAL_BETA_RUNBOOK.md)
+- 安全边界说明：[docs/SECURITY_BOUNDARY.md](docs/SECURITY_BOUNDARY.md)
+
+### 当前仍不是正式生产系统
+
+当前版本不包含正式登录系统、RBAC、真实支付、真实银行、真实税务、真实发票、真实短信、真实微信、真实邮件、真实 OTA、真实航司、真实酒店库存或真实外部 AI API。所有外部能力只做字段预留、状态预留、Mock 或规则化 MVP。
+
 ## 已实现接口
 
 | 方法 | 路径 | 功能 |

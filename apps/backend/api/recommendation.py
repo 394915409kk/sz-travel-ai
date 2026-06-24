@@ -1,7 +1,8 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from apps.backend.db import get_connection
+from apps.backend.security import require_internal_api_key
 from apps.backend.services.agent_team import create_agent_team_analysis
 from apps.backend.services.recommendation_scoring import rank_recommendations
 
@@ -74,7 +75,10 @@ def get_active_product(product_id: int):
 
 
 @router.post("/recommendations")
-def recommend_products(request: RecommendationRequest):
+def recommend_products(
+    request: RecommendationRequest,
+    _: None = Depends(require_internal_api_key),
+):
     recommendations = build_recommendations(
         destination=request.destination,
         budget=request.budget,
@@ -136,7 +140,10 @@ def recommend_products_by_inquiry(inquiry_id: int):
 
 
 @router.post("/products/{product_id}/ai-collaborative-strategy")
-async def get_ai_collaborative_strategy(product_id: int):
+async def get_ai_collaborative_strategy(
+    product_id: int,
+    _: None = Depends(require_internal_api_key),
+):
     """
     基于真实产品数据生成多智能体协同营销策略。
     """
