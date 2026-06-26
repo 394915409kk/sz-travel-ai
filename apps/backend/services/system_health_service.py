@@ -174,6 +174,60 @@ class SystemHealthService:
                 "error": str(exc),
             }
 
+    @staticmethod
+    def migration():
+        db_path = get_db_path()
+        current_revision = None
+        has_version_table = False
+        table_count = 0
+        quick_check = None
+        error = None
+
+        try:
+            conn = get_connection()
+            cursor = conn.cursor()
+            cursor.execute("PRAGMA quick_check")
+            quick_check = cursor.fetchone()[0]
+            cursor.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+            tables = {row["name"] for row in cursor.fetchall()}
+            table_count = len(tables)
+            has_version_table = "alembic_version" in tables
+            if has_version_table:
+                cursor.execute("SELECT version_num FROM alembic_version")
+                row = cursor.fetchone()
+                current_revision = row["version_num"] if row else None
+            conn.close()
+        except Exception as exc:
+            error = str(exc)
+
+        head_revision = None
+        head_error = None
+        try:
+            from scripts.migrate_db import build_config, latest_head
+
+            head_revision = latest_head(build_config())
+        except Exception as exc:
+            head_error = str(exc)
+
+        current_is_head = bool(
+            current_revision and head_revision and current_revision == head_revision
+        )
+        healthy = error is None and head_error is None and current_is_head
+
+        return {
+            "db_path": str(db_path),
+            "table_count": table_count,
+            "quick_check": quick_check,
+            "has_alembic_version": has_version_table,
+            "current_revision": current_revision,
+            "head_revision": head_revision,
+            "current_is_head": current_is_head,
+            "required_for_production": True,
+            "healthy": healthy,
+            "error": error,
+            "head_error": head_error,
+        }
+
     @classmethod
     def readiness(cls, route_paths):
         database = cls.database()
@@ -181,17 +235,22 @@ class SystemHealthService:
         risks = cls.risks() if database.get("accessible") else {"count": 0, "critical_count": 1, "warning_count": 0, "risks": []}
         security = cls.security()
         backup = cls.backup()
+        migration = cls.migration()
+        app_env = security["app_env"]
         database_ok = database.get("healthy", False)
         required_tables_ok = not database.get("missing_tables")
         module_registration_ok = modules["healthy"]
         backup_directory_ok = backup["backup_directory_ok"]
         security_config_ok = security["security_config_ok"]
+        migration_version_ok = migration["current_is_head"]
+        production_migration_ok = app_env != "production" or migration_version_ok
         ready = (
             database_ok
             and required_tables_ok
             and module_registration_ok
             and backup_directory_ok
             and security_config_ok
+            and production_migration_ok
             and risks["critical_count"] == 0
         )
         recommendations = []
@@ -203,17 +262,22 @@ class SystemHealthService:
             recommendations.append("修复 SQLite 备份目录权限。")
         if not security_config_ok:
             recommendations.extend(security["recommendations"])
+        if app_env == "production" and not migration_version_ok:
+            recommendations.append("生产环境必须先完成 Alembic 迁移或 stamp-existing。")
         if risks["critical_count"] > 0:
             recommendations.append("先修复关键一致性风险，再进入内测。")
         if not recommendations:
             recommendations.append("系统通过内测就绪检查；警告项仍需运营人员持续复核。")
         return {
-            "app_env": security["app_env"],
+            "app_env": app_env,
             "database_ok": database_ok,
             "required_tables_ok": required_tables_ok,
             "module_registration_ok": module_registration_ok,
             "backup_directory_ok": backup_directory_ok,
             "security_config_ok": security_config_ok,
+            "migration_version_ok": migration_version_ok,
+            "migration_current_revision": migration["current_revision"],
+            "migration_head_revision": migration["head_revision"],
             "critical_risks_count": risks["critical_count"],
             "warnings_count": risks["warning_count"],
             "ready": ready,
@@ -224,6 +288,7 @@ class SystemHealthService:
                 "modules": module_registration_ok,
                 "backup_directory": backup_directory_ok,
                 "security_config": security_config_ok,
+                "migration_current": production_migration_ok,
                 "no_critical_risks": risks["critical_count"] == 0,
             },
             "warning_count": risks["warning_count"],
@@ -243,6 +308,7 @@ class SystemHealthService:
             "modules": modules,
             "security": cls.security(),
             "backup": cls.backup(),
+            "migration": cls.migration(),
             "risks": risks,
             "readiness": readiness,
         }

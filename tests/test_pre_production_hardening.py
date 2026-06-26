@@ -1,5 +1,6 @@
 from fastapi.testclient import TestClient
 
+from apps.backend.init_db import init_database
 from apps.backend.main import app
 from apps.backend.services.privacy_service import PrivacyService
 from scripts.backup_sqlite import create_backup
@@ -59,6 +60,8 @@ def test_production_requires_correct_api_key_for_writes(tmp_path, monkeypatch):
     monkeypatch.setenv("INTERNAL_API_KEY", "production-test-key")
     monkeypatch.setenv("SQLITE_DB_PATH", str(tmp_path / "production_auth.db"))
     monkeypatch.setenv("SQLITE_BACKUP_DIR", str(tmp_path / "backups"))
+
+    init_database()
 
     with TestClient(app) as client:
         missing = client.post("/inquiries", json=inquiry_payload())

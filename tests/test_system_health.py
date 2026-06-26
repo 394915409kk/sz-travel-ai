@@ -8,6 +8,7 @@ from apps.backend.main import app
 
 def test_system_health_database_modules_and_readiness(tmp_path, monkeypatch):
     monkeypatch.setenv("SQLITE_DB_PATH", str(tmp_path / "health.db"))
+    monkeypatch.setenv("SQLITE_BACKUP_DIR", str(tmp_path / "backups"))
     with TestClient(app) as client:
         health = client.get("/system-health")
         assert health.status_code == 200
@@ -23,6 +24,7 @@ def test_system_health_database_modules_and_readiness(tmp_path, monkeypatch):
 
 def test_system_health_identifies_active_stockout_warning(tmp_path, monkeypatch):
     monkeypatch.setenv("SQLITE_DB_PATH", str(tmp_path / "health_risk.db"))
+    monkeypatch.setenv("SQLITE_BACKUP_DIR", str(tmp_path / "backups"))
     with TestClient(app) as client:
         client.post("/resources/activities", json={
             "destination": "塞班", "resource_name": "健康检查缺货资源", "supplier_name": "供应商",

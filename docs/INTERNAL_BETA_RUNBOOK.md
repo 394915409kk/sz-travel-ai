@@ -8,7 +8,7 @@
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-python -m apps.backend.init_db
+python scripts/migrate_db.py upgrade
 uvicorn apps.backend.main:app --reload
 ```
 
@@ -51,10 +51,18 @@ X-Request-Id: optional-request-id
 ## 5. 初始化数据库
 
 ```bash
+python scripts/migrate_db.py upgrade
+```
+
+Alembic 迁移会创建核心业务表、索引和 `alembic_version`，不会连接任何真实支付、银行、税务或外部平台。
+
+如需本地开发示例产品数据，可在 development 环境额外执行：
+
+```bash
 python -m apps.backend.init_db
 ```
 
-初始化会创建核心业务表和 `operation_audit_logs`，不会连接任何真实支付、银行、税务或外部平台。
+该命令只作为本地开发/测试辅助，不作为生产迁移方式。
 
 ## 6. 运行测试
 
@@ -86,8 +94,35 @@ python scripts/restore_sqlite.py backups/travel_products-YYYYMMDD-HHMMSS.sqlite3
 - `GET /system-health/readiness`
 - `GET /system-health/security`
 - `GET /system-health/backup`
+- `GET /system-health/migration`
 
 staging/production 环境中，`security_config_ok` 必须为 `true`。
+production 环境中，`migration_version_ok` 必须为 `true`。
+
+## 9.1 Alembic 迁移检查
+
+只读检查：
+
+```bash
+python scripts/migrate_db.py check
+python scripts/migrate_db.py history
+python scripts/migrate_db.py heads
+python scripts/migrate_db.py current
+```
+
+已有 SQLite 业务库首次接入版本管理：
+
+```bash
+python scripts/migrate_db.py stamp-existing
+```
+
+新库初始化：
+
+```bash
+python scripts/migrate_db.py upgrade
+```
+
+生产环境执行写操作必须人工确认，并显式增加 `--confirm-production`。详细规则见 `docs/DATABASE_MIGRATIONS.md`。
 
 ## 10. Swagger 验收
 

@@ -43,3 +43,8 @@ def system_security():
 @router.get("/backup")
 def system_backup():
     return {"success": True, **SystemHealthService.backup()}
+
+
+@router.get("/migration")
+def system_migration():
+    return {"success": True, **SystemHealthService.migration()}

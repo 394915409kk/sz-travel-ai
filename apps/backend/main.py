@@ -19,12 +19,13 @@ from apps.backend.api.finance_control import router as finance_control_router
 from apps.backend.api.dashboard import router as dashboard_router
 from apps.backend.api.system_health import router as system_health_router
 from apps.backend.api.audit import router as audit_router
-from apps.backend.init_db import init_database
+from apps.backend.init_db import init_database, should_auto_init_database
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    init_database()
+    if should_auto_init_database():
+        init_database()
     yield
 
 
