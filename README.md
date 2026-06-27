@@ -116,6 +116,10 @@ http://127.0.0.1:8000/docs
 docker compose up
 ```
 
+Docker 启动命令只启动应用，不会自动执行 Alembic 迁移。development 可通过
+`AUTO_INIT_DB_ON_STARTUP=true` 使用本地初始化辅助；production 必须先由人工
+执行带 `--confirm-production` 的迁移命令。
+
 服务启动后访问：
 
 ```text
@@ -186,7 +190,9 @@ python scripts/backup_sqlite.py
 python scripts/restore_sqlite.py backups/travel_products-YYYYMMDD-HHMMSS.sqlite3
 ```
 
-备份默认输出到 `backups/`，该目录已加入 `.gitignore`。恢复前会自动备份当前数据库。不接云备份或对象存储。
+备份使用 SQLite backup API，包含已提交的 WAL 数据，并在完成后执行
+`quick_check`。备份默认输出到 `backups/`，该目录已加入 `.gitignore`。
+恢复前会验证备份、检查完整性并自动备份当前数据库。不接云备份或对象存储。
 
 ### Alembic 数据库迁移
 
@@ -200,7 +206,8 @@ python scripts/migrate_db.py current
 python scripts/migrate_db.py upgrade
 ```
 
-已有业务库首次接入 Alembic 时，不允许直接 `upgrade`；必须人工检查后执行：
+已有业务库首次接入 Alembic 时，不允许直接 `upgrade`；必须通过 baseline
+关键表和字段检查，再由人工确认后执行：
 
 ```bash
 python scripts/migrate_db.py stamp-existing
@@ -211,6 +218,10 @@ python scripts/migrate_db.py stamp-existing
 ```bash
 APP_ENV=production python scripts/migrate_db.py upgrade --confirm-production
 ```
+
+production 禁止直接执行 `alembic upgrade`、`alembic stamp`、`python -m alembic`
+等写操作；`scripts/migrate_db.py` 是唯一生产迁移入口。内部 wrapper 授权变量
+由脚本临时生成，不得人工设置或写入配置文件。
 
 应用启动不会在 `APP_ENV=production` 时自动建表或迁移。完整流程见 `docs/DATABASE_MIGRATIONS.md` 和 `docs/PRODUCTION_DATABASE_MIGRATION_CHECKLIST.md`。
 

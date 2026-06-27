@@ -22,6 +22,8 @@ docker compose up --build
 ```
 
 默认服务端口为 `8000`，SQLite 数据库存放在 Docker volume `/data/travel_products.db`。
+Docker 启动只运行应用，不自动执行 Alembic 迁移。production 必须先单独执行
+带 `--confirm-production` 的迁移命令。
 
 ## 3. 环境变量配置
 
@@ -79,6 +81,8 @@ python scripts/backup_sqlite.py
 ```
 
 备份文件默认输出到 `backups/`，文件名包含时间戳。
+备份使用 SQLite backup API，包含已提交的 WAL 数据，并在完成后执行
+`PRAGMA quick_check`。
 
 ## 8. 恢复备份
 
@@ -87,6 +91,7 @@ python scripts/restore_sqlite.py backups/travel_products-YYYYMMDD-HHMMSS.sqlite3
 ```
 
 恢复前脚本会自动备份当前数据库。
+恢复输入必须是有效 SQLite 数据库并通过 `quick_check`；验证失败时不会覆盖目标库。
 
 ## 9. 查看健康检查
 
@@ -123,6 +128,8 @@ python scripts/migrate_db.py upgrade
 ```
 
 生产环境执行写操作必须人工确认，并显式增加 `--confirm-production`。详细规则见 `docs/DATABASE_MIGRATIONS.md`。
+production 不得直接运行 `alembic upgrade/stamp` 或 `python -m alembic` 写操作，
+只能使用 `scripts/migrate_db.py`。
 
 ## 10. Swagger 验收
 
@@ -133,6 +140,8 @@ python scripts/migrate_db.py upgrade
 - 写接口返回 401：检查是否缺少 `X-Internal-API-Key`。
 - 写接口返回 403：检查 API Key 是否错误，或 staging/production 是否未配置 `INTERNAL_API_KEY`。
 - readiness 中 `backup_directory_ok=false`：检查 `SQLITE_BACKUP_DIR` 权限。
+- readiness 中出现 `database_missing`：确认数据库路径，并人工完成迁移或恢复。
+- readiness 中出现 `alembic_version_missing` / `migration_not_ready`：按迁移检查清单处理。
 - readiness 中出现 critical 风险：先修复库存、订单、支付或报价状态，再继续验收。
 
 ## 12. 回滚方案

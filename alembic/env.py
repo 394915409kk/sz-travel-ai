@@ -1,4 +1,5 @@
 from logging.config import fileConfig
+import hmac
 import os
 import sys
 from pathlib import Path
@@ -20,6 +21,9 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 target_metadata = None
+KNOWN_APP_ENVS = {"development", "staging", "production"}
+PRODUCTION_WRITE_COMMANDS = {"downgrade", "ensure_version", "stamp", "upgrade"}
+WRAPPER_TOKEN_ENV = "SZ_TRAVEL_ALEMBIC_WRAPPER_TOKEN"
 
 
 def get_database_url():
@@ -39,6 +43,45 @@ def is_sqlite_url(url):
     return url.startswith("sqlite:")
 
 
+def get_command_name():
+    configured_command = config.attributes.get("migration_command")
+    if configured_command:
+        return configured_command
+
+    cmd_opts = getattr(config, "cmd_opts", None)
+    command_spec = getattr(cmd_opts, "cmd", None)
+    if isinstance(command_spec, tuple) and command_spec:
+        return getattr(command_spec[0], "__name__", None)
+    return getattr(command_spec, "__name__", None)
+
+
+def require_production_write_authorization():
+    app_env = (os.getenv("APP_ENV") or "development").strip().lower()
+    command_name = get_command_name()
+    if command_name not in PRODUCTION_WRITE_COMMANDS:
+        return
+    if app_env not in KNOWN_APP_ENVS:
+        raise RuntimeError(
+            "Invalid APP_ENV for database write operation. "
+            "Use development, staging, or production."
+        )
+    if app_env != "production":
+        return
+
+    environment_token = os.getenv(WRAPPER_TOKEN_ENV) or ""
+    config_token = config.attributes.get("wrapper_authorization_token") or ""
+    if not environment_token or not config_token:
+        raise RuntimeError(
+            "Direct Alembic write operations are disabled in production. "
+            "Use scripts/migrate_db.py with --confirm-production."
+        )
+    if not hmac.compare_digest(environment_token, config_token):
+        raise RuntimeError(
+            "Invalid production migration wrapper authorization. "
+            "Use scripts/migrate_db.py with --confirm-production."
+        )
+
+
 def run_migrations_offline():
     url = get_database_url()
     context.configure(
@@ -54,6 +97,7 @@ def run_migrations_offline():
 
 
 def run_migrations_online():
+    require_production_write_authorization()
     url = get_database_url()
     config.set_main_option("sqlalchemy.url", url)
     connectable = engine_from_config(

@@ -1,3 +1,6 @@
+import sqlite3
+
+import pytest
 from fastapi.testclient import TestClient
 
 from apps.backend.init_db import init_database
@@ -147,7 +150,11 @@ def test_audit_log_is_written_and_queryable(tmp_path, monkeypatch):
 
 def test_sqlite_backup_and_restore_scripts(tmp_path):
     db_path = tmp_path / "travel_products.db"
-    db_path.write_text("original", encoding="utf-8")
+    conn = sqlite3.connect(db_path)
+    conn.execute("CREATE TABLE audit_rows (value TEXT NOT NULL)")
+    conn.execute("INSERT INTO audit_rows VALUES ('original')")
+    conn.commit()
+    conn.close()
     backup_dir = tmp_path / "backups"
 
     backup_path = create_backup(
@@ -156,17 +163,84 @@ def test_sqlite_backup_and_restore_scripts(tmp_path):
         timestamp="20260101-000000",
     )
     assert backup_path.exists()
-    assert backup_path.read_text(encoding="utf-8") == "original"
+    backup_conn = sqlite3.connect(backup_path)
+    assert backup_conn.execute("PRAGMA quick_check").fetchone()[0] == "ok"
+    assert backup_conn.execute("SELECT value FROM audit_rows").fetchone()[0] == "original"
+    backup_conn.close()
+    second_backup = create_backup(
+        source_path=db_path,
+        backup_dir=backup_dir,
+        timestamp="20260101-000000",
+    )
+    assert second_backup != backup_path
+    assert second_backup.exists()
 
-    db_path.write_text("changed", encoding="utf-8")
+    conn = sqlite3.connect(db_path)
+    conn.execute("UPDATE audit_rows SET value = 'changed'")
+    conn.commit()
+    conn.close()
     result = restore_backup(
         backup_path=backup_path,
         target_path=db_path,
         backup_dir=backup_dir,
     )
 
-    assert db_path.read_text(encoding="utf-8") == "original"
+    restored_conn = sqlite3.connect(db_path)
+    assert restored_conn.execute("SELECT value FROM audit_rows").fetchone()[0] == "original"
+    restored_conn.close()
     assert result["pre_restore_backup"].exists()
+    previous_conn = sqlite3.connect(result["pre_restore_backup"])
+    assert previous_conn.execute("SELECT value FROM audit_rows").fetchone()[0] == "changed"
+    previous_conn.close()
+
+
+def test_sqlite_backup_includes_committed_wal_data(tmp_path):
+    db_path = tmp_path / "wal.db"
+    conn = sqlite3.connect(db_path)
+    assert conn.execute("PRAGMA journal_mode=WAL").fetchone()[0] == "wal"
+    conn.execute("PRAGMA wal_autocheckpoint=0")
+    conn.execute("CREATE TABLE audit_rows (value TEXT NOT NULL)")
+    conn.execute("INSERT INTO audit_rows VALUES ('committed-in-wal')")
+    conn.commit()
+    assert (tmp_path / "wal.db-wal").exists()
+
+    backup_path = create_backup(
+        source_path=db_path,
+        backup_dir=tmp_path / "backups",
+        timestamp="20260101-000000",
+    )
+
+    backup_conn = sqlite3.connect(backup_path)
+    assert backup_conn.execute("PRAGMA quick_check").fetchone()[0] == "ok"
+    assert backup_conn.execute("SELECT value FROM audit_rows").fetchone()[0] == "committed-in-wal"
+    backup_conn.close()
+    conn.close()
+
+
+def test_invalid_restore_backup_does_not_overwrite_target(tmp_path):
+    db_path = tmp_path / "target.db"
+    conn = sqlite3.connect(db_path)
+    conn.execute("CREATE TABLE audit_rows (value TEXT NOT NULL)")
+    conn.execute("INSERT INTO audit_rows VALUES ('keep-me')")
+    conn.commit()
+    conn.close()
+    original_bytes = db_path.read_bytes()
+
+    invalid_backup = tmp_path / "invalid.sqlite3"
+    invalid_backup.write_text("not-a-sqlite-database", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="not a valid SQLite database"):
+        restore_backup(
+            backup_path=invalid_backup,
+            target_path=db_path,
+            backup_dir=tmp_path / "backups",
+        )
+
+    assert db_path.read_bytes() == original_bytes
+    target_conn = sqlite3.connect(db_path)
+    assert target_conn.execute("SELECT value FROM audit_rows").fetchone()[0] == "keep-me"
+    target_conn.close()
+    assert not (tmp_path / "backups").exists()
 
 
 def test_readiness_includes_security_and_backup_checks(tmp_path, monkeypatch):

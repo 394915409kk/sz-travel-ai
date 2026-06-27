@@ -43,3 +43,28 @@ def test_system_health_identifies_active_stockout_warning(tmp_path, monkeypatch)
         readiness = client.get("/system-health/readiness").json()
         assert readiness["ready"] is True
         assert readiness["warning_count"] >= 1
+
+
+def test_production_readiness_reports_missing_database_without_creating_it(
+    tmp_path,
+    monkeypatch,
+):
+    db_path = tmp_path / "missing-production.db"
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.setenv("AUTO_INIT_DB_ON_STARTUP", "true")
+    monkeypatch.setenv("INTERNAL_API_KEY", "production-readiness-test-key")
+    monkeypatch.setenv("SQLITE_DB_PATH", str(db_path))
+    monkeypatch.setenv("SQLITE_BACKUP_DIR", str(tmp_path / "backups"))
+
+    with TestClient(app) as client:
+        response = client.get("/system-health/readiness")
+
+    assert response.status_code == 200
+    readiness = response.json()
+    assert readiness["status"] == "not_ready"
+    assert readiness["ready"] is False
+    assert readiness["database_missing"] is True
+    assert readiness["migration_not_ready"] is True
+    assert "database_missing" in readiness["reason_codes"]
+    assert "migration_not_ready" in readiness["reason_codes"]
+    assert not db_path.exists()

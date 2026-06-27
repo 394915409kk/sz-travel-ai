@@ -20,4 +20,4 @@ RUN mkdir -p /data /app/backups
 
 EXPOSE 8000
 
-CMD python scripts/migrate_db.py upgrade && uvicorn apps.backend.main:app --host 0.0.0.0 --port ${PORT}
+CMD uvicorn apps.backend.main:app --host 0.0.0.0 --port ${PORT}

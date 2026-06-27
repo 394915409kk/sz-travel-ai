@@ -848,7 +848,7 @@ def init_audit_log_tables(cursor):
 
 def should_auto_init_database():
     """Application startup may initialize only non-production local databases."""
-    if get_app_env() == "production":
+    if get_app_env() not in {"development", "staging"}:
         return False
 
     configured = os.getenv("AUTO_INIT_DB_ON_STARTUP")

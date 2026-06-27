@@ -8,13 +8,12 @@ services:
       APP_ENV: ${APP_ENV:-development}
       SQLITE_DB_PATH: ${SQLITE_DB_PATH:-/data/travel_products.db}
       SQLITE_BACKUP_DIR: ${SQLITE_BACKUP_DIR:-/app/backups}
-      AUTO_INIT_DB_ON_STARTUP: ${AUTO_INIT_DB_ON_STARTUP:-false}
+      AUTO_INIT_DB_ON_STARTUP: ${AUTO_INIT_DB_ON_STARTUP:-true}
       INTERNAL_API_KEY: ${INTERNAL_API_KEY:-}
     ports:
       - "${PORT:-8000}:8000"
     command: >
-      sh -c "python scripts/migrate_db.py upgrade
-      && uvicorn apps.backend.main:app --host 0.0.0.0 --port 8000"
+      uvicorn apps.backend.main:app --host 0.0.0.0 --port 8000
 
 volumes:
   sqlite_data:
