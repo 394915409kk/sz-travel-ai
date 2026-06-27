@@ -1,7 +1,7 @@
 from importlib.util import find_spec
 from pathlib import Path
 
-from apps.backend.db import get_connection, get_db_path
+from apps.backend.db import get_db_path, get_read_only_connection
 from apps.backend.security import security_config_status
 from apps.backend.services.inventory_service import RESOURCE_TABLES
 from apps.backend.services.profit_service import ProfitService
@@ -12,7 +12,9 @@ REQUIRED_TABLES = (
     "travel_products", "inquiries", "follow_up_tasks",
     "travel_transport_resources", "hotel_room_resources",
     "attraction_ticket_resources", "restaurant_meal_resources",
-    "activity_resources", "orders", "order_items", "payment_events",
+    "activity_resources", "orders", "order_items", "order_documents",
+    "insurance_products", "order_insurances", "order_contracts",
+    "order_reminders", "payment_events",
     "quotes", "quote_items", "sales_conversion_records",
     "content_campaigns", "customer_profiles", "repurchase_tasks",
     "supplier_performance", "procurement_suggestions", "finance_records",
@@ -53,18 +55,40 @@ class SystemHealthService:
 
     @classmethod
     def database(cls):
+        db_path = get_db_path()
+        if not db_path.exists():
+            return {
+                "accessible": False,
+                "database_missing": True,
+                "quick_check": None,
+                "db_path": str(db_path),
+                "readable": False,
+                "writable": False,
+                "required_table_count": len(REQUIRED_TABLES),
+                "existing_required_table_count": 0,
+                "missing_tables": list(REQUIRED_TABLES),
+                "healthy": False,
+                "reason_codes": ["database_missing"],
+            }
+
         try:
-            conn = get_connection()
+            conn = get_read_only_connection(db_path)
             cursor = conn.cursor()
             cursor.execute("PRAGMA quick_check")
             quick_check = cursor.fetchone()[0]
-            db_path = get_db_path()
             cursor.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
             existing = {row["name"] for row in cursor.fetchall()}
             missing = [table for table in REQUIRED_TABLES if table not in existing]
             conn.close()
+            reason_codes = []
+            if quick_check != "ok":
+                reason_codes.append("database_integrity_failed")
+            if missing:
+                reason_codes.append("required_tables_missing")
             return {
-                "accessible": True, "quick_check": quick_check,
+                "accessible": True,
+                "database_missing": False,
+                "quick_check": quick_check,
                 "db_path": str(db_path),
                 "readable": True,
                 "writable": db_path.exists() and db_path.stat().st_size >= 0,
@@ -72,9 +96,19 @@ class SystemHealthService:
                 "existing_required_table_count": len(REQUIRED_TABLES) - len(missing),
                 "missing_tables": missing,
                 "healthy": quick_check == "ok" and not missing,
+                "reason_codes": reason_codes,
             }
         except Exception as exc:
-            return {"accessible": False, "quick_check": None, "missing_tables": list(REQUIRED_TABLES), "healthy": False, "error": str(exc)}
+            return {
+                "accessible": False,
+                "database_missing": False,
+                "quick_check": None,
+                "db_path": str(db_path),
+                "missing_tables": list(REQUIRED_TABLES),
+                "healthy": False,
+                "reason_codes": ["database_unreadable"],
+                "error": str(exc),
+            }
 
     @staticmethod
     def modules(route_paths):
@@ -87,7 +121,7 @@ class SystemHealthService:
 
     @classmethod
     def risks(cls):
-        conn = get_connection()
+        conn = get_read_only_connection()
         cursor = conn.cursor()
         risks = []
         for resource_type, table in RESOURCE_TABLES.items():
@@ -174,24 +208,125 @@ class SystemHealthService:
                 "error": str(exc),
             }
 
+    @staticmethod
+    def migration():
+        db_path = get_db_path()
+        database_missing = not db_path.exists()
+        current_revision = None
+        has_version_table = False
+        table_count = 0
+        quick_check = None
+        error = None
+
+        if not database_missing:
+            try:
+                conn = get_read_only_connection(db_path)
+                try:
+                    cursor = conn.cursor()
+                    cursor.execute("PRAGMA quick_check")
+                    quick_check = cursor.fetchone()[0]
+                    cursor.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+                    tables = {row["name"] for row in cursor.fetchall()}
+                    table_count = len(tables)
+                    has_version_table = "alembic_version" in tables
+                    if has_version_table:
+                        cursor.execute("SELECT version_num FROM alembic_version")
+                        row = cursor.fetchone()
+                        current_revision = row["version_num"] if row else None
+                finally:
+                    conn.close()
+            except Exception as exc:
+                error = str(exc)
+
+        head_revision = None
+        head_error = None
+        try:
+            from scripts.migrate_db import build_config, latest_head
+
+            head_revision = latest_head(build_config())
+        except Exception as exc:
+            head_error = str(exc)
+
+        current_is_head = bool(
+            current_revision and head_revision and current_revision == head_revision
+        )
+        healthy = error is None and head_error is None and current_is_head
+        reason_codes = []
+        if database_missing:
+            reason_codes.append("database_missing")
+        if not database_missing and not has_version_table:
+            reason_codes.append("alembic_version_missing")
+        if not current_is_head:
+            reason_codes.append("migration_not_ready")
+        if error is not None:
+            reason_codes.append("database_unreadable")
+        if head_error is not None:
+            reason_codes.append("migration_head_unavailable")
+
+        return {
+            "db_path": str(db_path),
+            "database_missing": database_missing,
+            "table_count": table_count,
+            "quick_check": quick_check,
+            "has_alembic_version": has_version_table,
+            "current_revision": current_revision,
+            "head_revision": head_revision,
+            "current_is_head": current_is_head,
+            "required_for_production": True,
+            "healthy": healthy,
+            "reason_codes": reason_codes,
+            "error": error,
+            "head_error": head_error,
+        }
+
     @classmethod
     def readiness(cls, route_paths):
         database = cls.database()
         modules = cls.modules(route_paths)
-        risks = cls.risks() if database.get("accessible") else {"count": 0, "critical_count": 1, "warning_count": 0, "risks": []}
+        risks = (
+            cls.risks()
+            if database.get("healthy")
+            else {
+                "count": 1,
+                "critical_count": 1,
+                "warning_count": 0,
+                "risks": [
+                    cls._risk(
+                        "critical",
+                        "DATABASE_NOT_READY",
+                        "数据库缺失、不可读或关键表不完整。",
+                        {"reason_codes": database.get("reason_codes", [])},
+                    )
+                ],
+            }
+        )
         security = cls.security()
         backup = cls.backup()
+        migration = cls.migration()
+        app_env = security["app_env"]
         database_ok = database.get("healthy", False)
         required_tables_ok = not database.get("missing_tables")
         module_registration_ok = modules["healthy"]
         backup_directory_ok = backup["backup_directory_ok"]
         security_config_ok = security["security_config_ok"]
+        migration_version_ok = migration["current_is_head"]
+        production_migration_ok = app_env != "production" or migration_version_ok
+        database_missing = database.get("database_missing", False)
+        alembic_version_missing = (
+            app_env == "production"
+            and not database_missing
+            and not migration["has_alembic_version"]
+        )
+        migration_not_ready = (
+            app_env == "production" and not migration_version_ok
+        )
         ready = (
             database_ok
             and required_tables_ok
             and module_registration_ok
             and backup_directory_ok
             and security_config_ok
+            and production_migration_ok
             and risks["critical_count"] == 0
         )
         recommendations = []
@@ -203,17 +338,33 @@ class SystemHealthService:
             recommendations.append("修复 SQLite 备份目录权限。")
         if not security_config_ok:
             recommendations.extend(security["recommendations"])
+        if app_env == "production" and not migration_version_ok:
+            recommendations.append("生产环境必须先完成 Alembic 迁移或 stamp-existing。")
         if risks["critical_count"] > 0:
             recommendations.append("先修复关键一致性风险，再进入内测。")
         if not recommendations:
             recommendations.append("系统通过内测就绪检查；警告项仍需运营人员持续复核。")
         return {
-            "app_env": security["app_env"],
+            "app_env": app_env,
             "database_ok": database_ok,
             "required_tables_ok": required_tables_ok,
             "module_registration_ok": module_registration_ok,
             "backup_directory_ok": backup_directory_ok,
             "security_config_ok": security_config_ok,
+            "migration_version_ok": migration_version_ok,
+            "database_missing": database_missing,
+            "alembic_version_missing": alembic_version_missing,
+            "migration_not_ready": migration_not_ready,
+            "reason_codes": sorted(
+                set(database.get("reason_codes", []))
+                | (
+                    set(migration.get("reason_codes", []))
+                    if app_env == "production"
+                    else set()
+                )
+            ),
+            "migration_current_revision": migration["current_revision"],
+            "migration_head_revision": migration["head_revision"],
             "critical_risks_count": risks["critical_count"],
             "warnings_count": risks["warning_count"],
             "ready": ready,
@@ -224,6 +375,7 @@ class SystemHealthService:
                 "modules": module_registration_ok,
                 "backup_directory": backup_directory_ok,
                 "security_config": security_config_ok,
+                "migration_current": production_migration_ok,
                 "no_critical_risks": risks["critical_count"] == 0,
             },
             "warning_count": risks["warning_count"],
@@ -235,7 +387,23 @@ class SystemHealthService:
     def full_health(cls, route_paths):
         database = cls.database()
         modules = cls.modules(route_paths)
-        risks = cls.risks() if database.get("accessible") else {"count": 0, "critical_count": 1, "warning_count": 0, "risks": []}
+        risks = (
+            cls.risks()
+            if database.get("healthy")
+            else {
+                "count": 1,
+                "critical_count": 1,
+                "warning_count": 0,
+                "risks": [
+                    cls._risk(
+                        "critical",
+                        "DATABASE_NOT_READY",
+                        "数据库缺失、不可读或关键表不完整。",
+                        {"reason_codes": database.get("reason_codes", [])},
+                    )
+                ],
+            }
+        )
         readiness = cls.readiness(route_paths)
         return {
             "status": "ok" if readiness["ready"] else "degraded",
@@ -243,6 +411,7 @@ class SystemHealthService:
             "modules": modules,
             "security": cls.security(),
             "backup": cls.backup(),
+            "migration": cls.migration(),
             "risks": risks,
             "readiness": readiness,
         }

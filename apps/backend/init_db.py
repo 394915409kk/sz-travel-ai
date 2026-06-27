@@ -1,4 +1,7 @@
+import os
+
 from apps.backend.db import get_connection
+from apps.backend.security import get_app_env
 
 
 PRODUCT_SEED_DATA = [
@@ -841,6 +844,18 @@ def init_audit_log_tables(cursor):
     CREATE INDEX IF NOT EXISTS idx_operation_audit_logs_request
     ON operation_audit_logs (request_id)
     """)
+
+
+def should_auto_init_database():
+    """Application startup may initialize only non-production local databases."""
+    if get_app_env() not in {"development", "staging"}:
+        return False
+
+    configured = os.getenv("AUTO_INIT_DB_ON_STARTUP")
+    if configured is None:
+        return True
+
+    return configured.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def init_database():

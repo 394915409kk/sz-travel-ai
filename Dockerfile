@@ -12,10 +12,12 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY apps ./apps
 COPY scripts ./scripts
+COPY alembic ./alembic
+COPY alembic.ini .
 COPY README.md .
 
 RUN mkdir -p /data /app/backups
 
 EXPOSE 8000
 
-CMD python -m apps.backend.init_db && uvicorn apps.backend.main:app --host 0.0.0.0 --port ${PORT}
+CMD uvicorn apps.backend.main:app --host 0.0.0.0 --port ${PORT}
