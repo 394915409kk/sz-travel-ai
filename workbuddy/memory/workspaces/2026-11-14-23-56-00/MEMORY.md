@@ -50,12 +50,14 @@
 
 ## 五、当前状态（2026-11-15）
 
-01｜WENDAO_API_KEY｜未配置，.zshrc 未写入，问道接口尚未真实调用
+01｜WENDAO_API_KEY｜2026-11-15 08:52 用 KK 本轮提供的 token 单次内联验证通过，返回 Markdown 正文、无认证错误；但 .zshrc 未写入、当前 shell 未配置，长期配置未完成，自动化任务仍读不到密钥。token 未写入任何文件、未进 Git、未回显，已扫描确认工作区零落盘
 02｜申请入口｜www.ctrip.com/wendao/openclaw，详细步骤见 TravelAgent/content/携程问道-token申请与配置步骤.txt
 03｜塞班售价｜KK 未给，标记 pending_supplier，禁止对客报价与下单
 04｜富国岛售价｜取自 2026-11-13 海报，3天 1999／4天 2399／5天 2799 元每人，须逐项回源核验
-05｜测试｜engine.test.js 14 项 + products.test.js 13 项 = 27 项全绿；H5 冒烟 16 项全过
-06｜待办｜KK 配置密钥后跑真实查询验证；塞班售价回源；KK 逐条审核素材；拿结构化库存接口后替换适配层
+05｜测试｜engine.test.js 14 项 + products.test.js 14 项 = 28 项全绿；H5 冒烟 19 项全过；Go build／vet／test／race／cover 全通过
+06｜待办｜KK 完成长期密钥配置、撤销重建已出现在对话里的 token、逐条裁定口径冲突、塞班售价回源、KK 逐条审核素材；拿结构化库存接口后替换适配层
+07｜问道返回口径核对｜result 与本地素材查出 5 处冲突：免签确定性表述、阳东夜市对杨东夜市、接吻桥对亲吻桥、住宿推荐（Vinpearl／雅高／万豪 对 KK 指定乔亚与翡翠南安）、门票「一票畅玩」对「不表示包含门票」。另有 4 类禁止进对客内容（营销链接、免签表述、未核价门票、冒充实时库存）与 7 项待审资讯。清单见 content/问道返回与本地素材口径核对清单.txt，待 KK 逐条裁定
+08｜问道使用边界｜只作攻略资讯补充，须标注来源携程问道与返回时间，经 KK 逐条审核后方可进对客文案；价格与库存仍由供应商逐行回源
 
 ## 六、关键文件
 
@@ -64,8 +66,9 @@ TravelAgent/products.js｜三条产品线配置与核验页、政策复核、问
 TravelAgent/engine.js｜核心引擎（行程、增量报价、替换、三档、核验、四者同步、详情页、版本、偏好、导入审核）
 TravelAgent/app.js｜四步交互层
 TravelAgent/engine.test.js｜原有 14 项回归
-TravelAgent/products.test.js｜14 条拍板验收 13 项
-TravelAgent/smoke.html｜浏览器冒烟
+TravelAgent/products.test.js｜14 条拍板验收 14 项
+TravelAgent/smoke.html｜浏览器冒烟 19 项
 TravelAgent/content/富国岛自由行玩法-3天4天5天.txt｜补齐海报缺的玩法内容
 TravelAgent/content/携程问道-token申请与配置步骤.txt｜token 申请与配置步骤
+TravelAgent/content/问道返回与本地素材口径核对清单.txt｜问道 result 与本地素材 5 处冲突，待 KK 逐条裁定
 TravelAgent/server/｜Go 服务端引擎与 CLI
