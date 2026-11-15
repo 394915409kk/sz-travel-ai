@@ -53,12 +53,13 @@
 
 ## 五、当前状态（2026-11-15）
 
-01｜WENDAO_API_KEY｜2026-11-15 08:52 用 KK 本轮提供的 token 单次内联验证通过，返回 Markdown 正文、无认证错误；但 .zshrc 未写入、当前 shell 未配置，长期配置未完成，自动化任务仍读不到密钥。token 未写入任何文件、未进 Git、未回显，已扫描确认工作区零落盘
-02｜申请入口｜www.ctrip.com/wendao/openclaw，详细步骤见 TravelAgent/content/携程问道-token申请与配置步骤.txt
+01｜WENDAO_API_KEY｜2026-11-15 10:39 已写入本机 ~/.zshrc 并收紧权限 600，写入前备份 ~/.zshrc.bak-20261115-1039；source 后复跑真实查询返回 Markdown 正文、无认证错误，长期配置完成。密钥不进工作区文件、不进 Git、不进记忆、不回显，工作区扫描确认零落盘
+01A｜自动化通路（重要坑）｜WorkBuddy 自动化为非交互进程，默认不加载交互式 ~/.zshrc；实测全新进程直接调技能脚本仍报「缺少 token 或 query」。已建不含密钥的包装器 TravelAgent/scripts/wendao-call.sh，内部用 zsh 加载配置再调脚本，2026-11-15 10:39 端到端验证通过。自动化 prompt 一律走包装器，或由平台注入 WENDAO_API_KEY
+02｜申请入口｜www.ctrip.com/wendao/openclaw，配置与排错步骤见 TravelAgent/content/携程问道-token申请与配置步骤.txt
 03｜塞班售价｜KK 未给，标记 pending_supplier，禁止对客报价与下单
 04｜富国岛售价｜取自 2026-11-13 海报，3天 1999／4天 2399／5天 2799 元每人，须逐项回源核验
-05｜测试｜engine.test.js 14 项 + products.test.js 15 项 = 29 项全绿；H5 冒烟 23 项全过；Go build／vet／test／race／cover 全通过
-06｜待办｜KK 完成长期密钥配置并回「已配置」；本地海报与全案手册按裁定改名；塞班售价回源；KK 逐条审核素材与文案；拿结构化库存接口后替换适配层。原「撤销重建 token、逐条裁定口径冲突」两项已完成或作废，不再列为待办
+05｜测试｜engine.test.js 14 项 + products.test.js 15 项 = 29 项全绿；H5 冒烟 24 项全过；Go build／vet／test／race／cover 全通过
+06｜待办｜本地海报与全案手册按裁定改名；塞班售价回源；KK 逐条审核素材与文案；拿结构化库存接口后替换适配层；可选建 2027-07-21 授权码到期提醒自动化。原「长期密钥配置」「撤销重建 token」「逐条裁定口径冲突」三项已完成或作废
 07｜授权码有效期｜2027-08-21 06:38:19（页面标注）。页面为 Beta 测试阶段、授权码数量有限，避免高频调用；页面无撤销／重新生成／重置入口，只有「复制」按钮，此前建议的撤销重建已作废
 08｜五处冲突已裁定｜2026-11-15 09:45 KK 逐条裁定，详见下节「六」。核验页与对外文案均已按裁定改造
 09｜问道使用边界｜只作攻略资讯补充，须标注来源携程问道与返回时间，经 KK 逐条审核后方可进对客文案；价格与库存仍由供应商逐行回源
@@ -82,7 +83,8 @@ TravelAgent/engine.js｜核心引擎（行程、增量报价、替换、三档�
 TravelAgent/app.js｜四步交互层
 TravelAgent/engine.test.js｜原有 14 项回归
 TravelAgent/products.test.js｜14 条拍板验收 15 项
-TravelAgent/smoke.html｜浏览器冒烟 23 项
+TravelAgent/smoke.html｜浏览器冒烟 24 项
+TravelAgent/scripts/wendao-call.sh｜不含密钥的问道调用包装器，自动化专用
 TravelAgent/content/富国岛自由行玩法-3天4天5天.txt｜3／4／5 天玩法，含酒店分层与产品定位
 TravelAgent/content/携程问道-token申请与配置步骤.txt｜Beta 页面按钮级配置流程，含无撤销入口的更正
 TravelAgent/content/问道返回与本地素材口径核对清单.txt｜已裁定版与落地回执，含实时房价能力边界实测
