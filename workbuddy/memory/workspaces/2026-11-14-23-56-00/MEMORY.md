@@ -132,3 +132,29 @@ TravelAgent/server/｜Go 服务端引擎与 CLI
 10｜需 KK 授权（本轮未做）｜01 生成对外在线 H5 链接；02 安装任何新技能、插件、专家；03 把真实供应商报价表写入素材库；04 企业微信或飞书自动推送验收结果。
 11｜需 KK 确认（请回编号）｜01「自动化部署」范围 A 本地一键验证加预览（已完成）／B 在线链接（待授权）／C 每日定时（请给时间点）／D 接入 Git 仓库 CI（请给仓库地址）；02 当季盖章报价 xlsx／csv 完整路径与用途，或回「暂不接入」；03 回「已逐条审核通过＋可发布范围」，或回「继续内部演练，闸口保持 blocked」。
 12｜红线｜塞班暂停期间不主推不接单；富国岛 5 间不等于人数且合同未签；航班时刻写待航司公布；入境政策写待核实；问道不是实时库存或实时房价接口；首版只生成订单号不接支付；医疗不作疗效承诺；内部成本只进核验页。
+
+## 十、2026-11-18 CloudBase 接入与在线内部演练链接（事实）
+
+01｜接入结论｜按 https://docs.cloudbase.net/skill.md 完成国内站接入；WorkBuddy 内置连接器原已启用，未重复装插件、未手写 MCP JSON。网页登录腾讯云账号不等于 CLI 设备授权，跨天旧码作废；第三次设备码 CBBY-KZBR 经 KK 确认后 00:42:57 凭据落盘，auth_status=READY，credential_source=global。
+
+02｜环境｜forward-wallaby（ID forward-wallaby-d2flfzhg2573e406），上海，体验版 baas_trial，NORMAL，到期 2027-05-18。MCP 自动绑定，CLI tcb env use 设为全局默认。RuntimeMode=postgresql，PG 已开通（SHARED）；无可用 NoSQL(flexdb)、无 MySQL，后续新业务数据一律走 PG，禁用 MySQL 工具族。静态托管域名路由 enabled=true、可达。
+
+03｜在线链接｜https://travelagent-drill-forward-wallaby-d2flfzhg2573e406.webapps.tcloudbase.com 已上线，serviceName=travelagent-drill，版本 travelagent-drill-001，BuildId 2613078091，状态 SUCCESS。首页与 4 个静态资源实测 HTTP 200，线上页面含「内部演练版」「禁止对客转发」标识。仅内部演练，禁止对客转发，闸口仍 pending_review、blocked。
+
+04｜发布目录｜TravelAgent/public 由 scripts/build-public.sh 生成，只含 5 个 H5 静态文件，过凭据串／密钥赋值／企微地址／白名单外文件／演练标识五项自检；content 成本文档、server、scripts、backup、smoke.html 一律不上公网。更新线上：verify-all.sh → build-public.sh → 对同一 serviceName 重新部署，链接不变。
+
+05｜验证｜2026-11-18 00:51 最终全量回归：Node 37、H5 冒烟 69、Go gofmt/vet/test/race/cover/build 全绿，VERIFY_ALL_OK。
+
+## 十一、2026-11-18 GitHub CI 打通（事实）
+
+01｜根因｜原 PAT 只有 repo 权限，GitHub 拒绝推送 workflow 文件。KK 新建 classic token（Note travelagent-ci，repo + workflow，90 天到期 2027-02-16），用 read -s 写入 macOS 钥匙串，不进聊天／文件／Git／记忆。
+
+02｜关键坑｜git credential fill 不带 username 会取到钥匙串旧条目（x-access-token／repo 权限），必须带 username=394915409kk 精确取才是新 token（ghp_ 前缀，repo + workflow）。推送用 http.extraheader basic 认证并 sed 脱敏输出。
+
+03｜结果｜提交 8c14069，10 文件 270 行新增，含 CI 工作流文件。本地与远程 HEAD 一致，远程 .github/workflows/travelagent-ci.yml HTTP 200。
+
+04｜CI 实跑｜run 44133714207 completed／success，verify job 十步全绿（checkout、setup-node、setup-go、Node regression、JS and shell syntax、Public release build、Go all、Go CLI smoke、H5 smoke）。以后每次 push 云端自动全量验证。
+
+05｜仓库｜https://github.com/394915409kk/travelagent-ai 。安全提醒：新 token 曾在截图明文出现，建议 CI 稳定后撤销重生成，Actions 用内置 GITHUB_TOKEN 不受影响。
+
+06｜工具坑（复用）｜Lock push 若报 workflow scope 拒绝，先按 02 精确取凭据，不要重建 token。
