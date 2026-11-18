@@ -182,3 +182,21 @@ TravelAgent/server/｜Go 服务端引擎与 CLI
 04｜审核链接｜KK 要「素材文案逐条审核通过的链接」。新建 review.html（5 组：15 档报价／房型口径／报价底座／文案红线／发布闸口，逐条勾选生成飞书直贴版回执），加入 build-public.sh 白名单并加内部审核标识自检。CloudBase 部署 travelagent-drill-002 SUCCESS。线上链接 https://travelagent-drill-forward-wallaby-d2flfzhg2573e406.webapps.tcloudbase.com/review.html 实测 HTTP 200。经企微通道1推送给 KK（errcode=0；本轮先按 KK 要求重授权企业微信 wecom，状态 connected）。闸口不因勾选自动释放。
 
 05｜回归｜VERIFY_ALL_OK：Node 41、H5 冒烟 73、public 6 文件、PUBLIC_SAFE_OK、GO_TEST_OK。审核页勾选不等于放行，正式发布仍需 KK 回「已逐条审核通过＋可发布范围」由行程管家手动解除。市场价与返利仍待 KK 逐档确认，春节机票 2350 对 3000 差异未裁定。
+
+## 十四、2026-11-18 20:32 OTA 动态打包模式升级（事实）
+
+01｜升级方向｜KK 指出原「一句话生成后调整」设计有问题，要求参考携程 OTA 动态打包：成本提前录入、单项勾选（行程/航班/酒店/房型/景点）、行程与价格实时同步、给客户完整版、客人可自助改也可管家代改、确认后直接买单支付。四问拍板：支付正式改口径接真实支付（推翻第06条）；范围富国岛加广东；闸口继续内部演练；景点做成可加购、价格待回源。
+
+02｜booking.js 动态打包引擎｜UMD 浏览器 window.TravelBooking、Node require。buildCostPool 成本前置池：富国岛机票 1800/2350 两档、两家酒店各大床房与标准双人房共4条（320/晚含早含税、单房差50%即160/晚）、接送100、广东38条演示占位；pick 勾选；computeQuote 实时算价（成本×1.15 对客，成本/利润率只内部）；buildItinerary 实时行程，与报价共用 revision；verify 拦截未回源；createOrder 订单号 ZL+时间戳 + 支付适配器。
+
+03｜booking.html｜四步勾选，右侧实时价格与行程联动，客人自助/管家代改切换，确认去支付进收银台，生成对客完整版飞书直贴。常驻内部演练版/pending_review/不真扣款/禁止对客转发。
+
+04｜UMD 坑（复用教训）｜booking.js 工厂内误用外层 root 变量致浏览器 ReferenceError、Node 因走 require 分支未暴露。修法：E 作为参数注入 factory(P,E)。铁律：UMD 工厂内不得引用外层作用域变量，必须显式注入；Node 测试通过≠浏览器通过，必须真实 DOM 冒烟。
+
+05｜回归全绿｜Node 52（engine14+products27+booking11）、H5 冒烟73、动态打包冒烟25（9项直接查真实渲染DOM剔除脚本防假通过）、public 8 文件、GO_TEST_OK，VERIFY_ALL_OK。verify-all.sh 与 CI 已纳入 booking.test.js 与 booking-smoke.sh。
+
+06｜支付能力边界（如实）｜本机微信支付是 AI 专属卡代付（WorkBuddy 对话支付卡片触发），不是 H5 内嵌收银台；H5 自助扫码需商户号+证书+备案域名（本机无）。merchant_h5 适配器预留但 realChargeSupported=false，live 显式拒绝、不假装能收。可落地收款路径：H5 生成待支付单→推对话→智能体触发 AI 专属卡卡片→客人点卡片付款（需先绑卡）。详见 content/动态打包与支付适配器说明.txt。
+
+07｜部署｜CloudBase travelagent-drill-003 SUCCESS，链接 https://travelagent-drill-forward-wallaby-d2flfzhg2573e406.webapps.tcloudbase.com/booking.html curl 200。无头浏览器被测试域名「风险提醒」确认页拦截（真人点确定访问后正常），非故障；体验版有访问量上限提示需留意配额。
+
+08｜待 KK｜支付通道最终形态（AI 专属卡代付 vs 自建商户 H5 需资质）；闸口放行范围；广东成本回源；景点当季门票盖章报价；市场价返利逐档确认与春节机票 2350 对 3000 裁定。闸口仍 pending_review。
