@@ -170,3 +170,15 @@ TravelAgent/server/｜Go 服务端引擎与 CLI
 04｜六待核｜01源文件自注卖价返利仅供参考未盖章；02春节手动差价过高需逐档确认；03返利口径未定义；04春节机票成本2350（定价表）对3000（包团核算表）；05酒店320元一晚未落房型含早税费单房差；06三方协议第3版留空待签、签署版机票协议冲突未核。
 
 05｜交付与闸口｜TravelAgent/content/富国岛当季报价实操演练核验稿.txt，飞书直贴版自检通过。闸口 pending_review、blocked；内部成本与返利只进核验稿，不进客户详情页与飞书。硬包5间是间／天不等于人数，合同未签写近日待签（预计）。待 KK 回可导入或只读盘点、逐档确认市场价与返利、补房型口径、回已逐条审核通过＋可发布范围。
+
+## 十三、2026-11-18 09:15 KK 四条拍板落地（事实）
+
+01｜可导入｜KK 回「可导入」。15 档当季素材（源 富国岛包房旺季机酒成本&定价1117.docx，2026-11-17）逐行写入 products.js 的 SEASONAL_RATE_ROWS，经 buildSeasonalDraftCatalog() 生成待审核草稿，audit.status=draft_pending_review，未经逐条审核不进方案。源文件只读零改动。成本以附件为准，圣诞机票按 2350（源文件备注申请 1800 未批不采纳）。
+
+02｜报价底座四项可编辑｜KK 要求成本与报价可改、利润率加到底座且可自填、报价可手改、活动特价可设置。落地：PRICING_MODEL.editableBase 四项（成本／利润率／报价／活动特价均可编辑）；buildPricingLayer 支持 profitRate 自填（百分数，与 rateBPS 互为别名）与 promoPrice 活动特价（effectivePrice 优先取特价，不改成本与建议价）；engine.applyManualPrice 透传并留痕；app.js 核验页「报价工作台」四项表单，活动特价必填理由。每次改动置 quote.verified=false 并重新核价。
+
+03｜房型口径｜KK 拍板乔亚 Joya 与翡翠南安房型仅大床房与标准双人房两种、含早含税、单房差=房价50%。落地 ROOM_CONFIG：房价 320 元／晚，单房差 160 元／晚按晚数累计（2晚320／3晚480／4晚640），覆盖旧海报 700／1050／1400。SKU 房型选项、行前说明、核验页同步。
+
+04｜审核链接｜KK 要「素材文案逐条审核通过的链接」。新建 review.html（5 组：15 档报价／房型口径／报价底座／文案红线／发布闸口，逐条勾选生成飞书直贴版回执），加入 build-public.sh 白名单并加内部审核标识自检。CloudBase 部署 travelagent-drill-002 SUCCESS。线上链接 https://travelagent-drill-forward-wallaby-d2flfzhg2573e406.webapps.tcloudbase.com/review.html 实测 HTTP 200。经企微通道1推送给 KK（errcode=0；本轮先按 KK 要求重授权企业微信 wecom，状态 connected）。闸口不因勾选自动释放。
+
+05｜回归｜VERIFY_ALL_OK：Node 41、H5 冒烟 73、public 6 文件、PUBLIC_SAFE_OK、GO_TEST_OK。审核页勾选不等于放行，正式发布仍需 KK 回「已逐条审核通过＋可发布范围」由行程管家手动解除。市场价与返利仍待 KK 逐档确认，春节机票 2350 对 3000 差异未裁定。
