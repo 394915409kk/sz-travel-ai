@@ -14,10 +14,14 @@
 
 ## 飞书授权与建表进展
 
-- 2026-11-20：飞书 Bot 身份 ready；用户身份(陈桂芹)refresh token 已过期
-- 2026-11-20：已发起设备授权（Device Flow），授权链接已发 KK，待 KK 浏览器授权后执行 device-code 完成
-- 建表归属决策：走 KK 本人授权建 Base，成员陈桂芹、李杰有编辑权限
+- 2026-11-20：飞书用户身份(陈桂芹)已重新 Device Flow 授权成功，token valid
+- **2026-11-20 建表完成**：Base「富国岛成本核算与多维分析」已用陈桂芹身份建好
+  - Base URL：https://ncnasqe8fs6w.feishu.cn/base/Hp5obzNUEaXOGCsj1XRcmTfRn0c
+  - base_token：Hp5obzNUEaXOGCsj1XRcmTfRn0c
+  - 5 张表：利润测算(20行,tblgECjQwEcPDp3l) / 产品表(6,tbl7rwmEgFV1b0bj) / 成本档表(16,tblj0Cgcqge1siqQ) / 参数表(6,tblKW1xMouKwW8jZ) / 待确认清单(6,tblJG9jpHt2Pbi9k)
+  - 成员权限：陈桂芹 full_access(owner) / 李杰 edit(open_id ou_ab038a78c4883706903002250fc9cf41)
 - 落地双份：飞书多维表格（主）+ 本地桌面「富国岛」文件夹（副本）
+- 注意：excel-sync 脚本 create 命令的 first_value 解析不了新 CLI 返回结构(data.base.base_token)，改为手动 lark-cli +base-create，再用 sync 导入；主键用"记录ID/成本档ID"等唯一列
 
 ## 关键经营发现（真实成本测算）
 
