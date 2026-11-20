@@ -19,7 +19,12 @@
   - Base URL：https://ncnasqe8fs6w.feishu.cn/base/Hp5obzNUEaXOGCsj1XRcmTfRn0c
   - base_token：Hp5obzNUEaXOGCsj1XRcmTfRn0c
   - 5 张表：利润测算(20行,tblgECjQwEcPDp3l) / 产品表(6,tbl7rwmEgFV1b0bj) / 成本档表(16,tblj0Cgcqge1siqQ) / 参数表(6,tblKW1xMouKwW8jZ) / 待确认清单(6,tblJG9jpHt2Pbi9k)
-  - 成员权限：陈桂芹 full_access(owner) / 李杰 edit(open_id ou_ab038a78c4883706903002250fc9cf41)
+  - 成员权限：陈桂芹 full_access(owner) / 李杰 edit(open_id ou_ab038a78c4883706903002250fc9cf41) / 贝宝玉 edit(open_id ou_0044d0501630098e5acd43384fd97102)
+- **2026-11-20 三视图+公式配置完成**：
+  - 3 视图（利润测算表）：成本核算(v1,15字段,按产品ID分组) / 报价与返利空间(v2,15字段,按产品ID分组) / 留存利润看板(v3,14字段,按公式-成人留存利润率降序)
+  - 4 公式字段：公式-成人留存利润率 / 公式-儿童留存利润率 / 公式-返利空间上限 / 公式-定价参考底价
+  - 公式验证：20/20 行静态值与公式值一致（儿童利润率9行静态空值因儿童价待确认，公式返回0属正常兜底）
+  - 视图 view-id：成本核算 vewusTblH3 / 报价与返利空间 vewRt2w2HW / 留存利润看板 vewtsGnoja
 - 落地双份：飞书多维表格（主）+ 本地桌面「富国岛」文件夹（副本）
 - 注意：excel-sync 脚本 create 命令的 first_value 解析不了新 CLI 返回结构(data.base.base_token)，改为手动 lark-cli +base-create，再用 sync 导入；主键用"记录ID/成本档ID"等唯一列
 
